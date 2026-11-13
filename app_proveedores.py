@@ -3,7 +3,7 @@ Programa de Abasto Rural 2026 · Tablero de Proveedores
 Subgerencia de Abarrotes · Alimentación para el Bienestar
 
 Tablero para exposición: cada proveedor entra con su código y ve su información (surtido, precios dentro del
-rango del mercado, cobertura y vigencias). Las comparaciones son por rangos y nunca muestran el nombre de otro
+rango del mercado, cobertura y artículos). Las comparaciones son por rangos y nunca muestran el nombre de otro
 proveedor. Con el código de administrador se ve todo el programa y se puede abrir el tablero de cualquier proveedor.
 
 Ejecutar:   streamlit run app_proveedores.py
@@ -86,7 +86,6 @@ INF = float("inf")
 RANGOS_ART = [(5, "1 a 5"), (10, "6 a 10"), (20, "11 a 20"), (50, "21 a 50"), (INF, "Más de 50")]
 RANGOS_REG = [(0, "Sin dato"), (1, "1 región"), (4, "2 a 4"), (8, "5 a 8"), (11, "9 a 11"), (12, "Las 12 (nacional)")]
 RANGOS_COSTO = [(10, "Hasta $10"), (20, "$10 a $20"), (50, "$20 a $50"), (100, "$50 a $100"), (INF, "Más de $100")]
-RANGOS_VIG = [(-1, "Vencida"), (30, "0 a 30 días"), (60, "31 a 60 días"), (90, "61 a 90 días"), (INF, "Más de 90 días")]
 
 # Paleta institucional
 GUINDA, GUINDA_MED = "#611232", "#9D2449"
@@ -138,7 +137,6 @@ ICONOS = {
     "balanza": '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 '
                '1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
     "rangos": '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
-    "calendario": '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
     "candado": '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     "lista": '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/>'
              '<path d="M8 6h13"/>',
@@ -181,7 +179,7 @@ RENOMBRAR = {
     "MARCA": "MARCA", "CAP": "CAP", "GRAM": "GRAM", "U/M": "UM",
     "COSTO DE ADQUISICIÓN 2026": "COSTO_CAJA",
     "COSTO UNITARIO DE ADQUISICIÓN 2026": "COSTO_UNIT",
-    "COBERTURA": "COBERTURA", "VIGENCIA": "VIGENCIA",
+    "COBERTURA": "COBERTURA",
 }
 NUMERICAS = ["CAP", "GRAM", "COSTO_CAJA", "COSTO_UNIT"]
 # Unidad de medida -> (factor a la unidad base, unidad base): así se comparan presentaciones distintas
@@ -224,7 +222,7 @@ def cargar(contenido: bytes) -> pd.DataFrame:
         raise ValueError("faltan las columnas " + ", ".join(faltan))
 
     df = raw[raw["ART_ID"].notna()].copy()
-    for c in ["NEGOCIACION", "PROD", "MARCA", "UM", "COBERTURA", "VIGENCIA", *NUMERICAS]:
+    for c in ["NEGOCIACION", "PROD", "MARCA", "UM", "COBERTURA", *NUMERICAS]:
         if c not in df:
             df[c] = pd.NA
     for c in NUMERICAS:
@@ -246,7 +244,6 @@ def cargar(contenido: bytes) -> pd.DataFrame:
     fichas = cob.where(~cob.isin(["", "NAN", "NA"]), "").str.split()
     df["ALCANCE"] = ["Nacional" if "NAL" in f else ("Regional" if f else "Sin dato") for f in fichas]
     df["REGIONES"] = [tuple(REGIONES) if "NAL" in f else tuple(r for r in REGIONES if r in f) for f in fichas]
-    df["VIG_FECHA"] = pd.to_datetime(df["VIGENCIA"], errors="coerce")
     df["PRESENTACION"] = [presentacion(c, g, u) for c, g, u in zip(df["CAP"], df["GRAM"], df["UM"])]
 
     factor = pd.to_numeric(df["UM"].map(lambda u: UNIDAD_BASE.get(u, (None, None))[0]), errors="coerce")
@@ -347,8 +344,6 @@ if "oscuro" not in st.session_state:
 oscuro = st.session_state["oscuro"]
 st.query_params["tema"] = "oscuro" if oscuro else "claro"
 T = TEMAS["oscuro" if oscuro else "claro"]
-COLOR_VIG = {"Vencida": T["alerta"], "0 a 30 días": T["oro"], "31 a 60 días": T["azul"], "61 a 90 días": T["verde_claro"],
-             "Más de 90 días": T["verde"], "Sin fecha": T["tenue"]}
 
 VARIABLES = ":root{" + "".join(f"--{k.replace('_', '-')}:{v};" for k, v in T.items() if isinstance(v, str)) + "}"
 CSS = """
@@ -586,6 +581,7 @@ details.kpi-det .nombres::-webkit-scrollbar-thumb { background: var(--borde); bo
 .st-key-buscar_prov .lupa { display: flex; color: var(--tenue); }
 .st-key-buscar_prov [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
 .st-key-buscar_prov input { padding-left: 34px !important; }
+.tabla th .ordenada { display: inline-flex; align-items: center; gap: 4px; color: var(--acento); font-weight: 700; }
 .tabla td .lugar { margin-left: 6px; height: 20px; min-width: 30px; font-size: .7rem; }
 .rubro { display: inline-block; font-size: .7rem; font-weight: 600; color: var(--acento); border-radius: 999px;
   background: rgb(var(--acento-rgb) / .1); padding: 1px 8px; margin: 1px 4px 1px 0; white-space: nowrap; }
@@ -1017,8 +1013,6 @@ if datos.empty:
 
 hoy = pd.Timestamp(ahora().date())
 unicos = datos.drop_duplicates(["CVE", "ART_ID"]).copy()   # un artículo cuenta una vez por proveedor
-unicos["DIAS"] = (unicos["VIG_FECHA"] - hoy).dt.days
-unicos["RANGO_VIG"] = en_rangos(unicos["DIAS"], RANGOS_VIG).astype(object).where(unicos["DIAS"].notna(), "Sin fecha")
 nombre_prod = datos.groupby("PROD")["PRODUCTO"].first()
 prov_por_prod = unicos.groupby("PROD")["CVE"].nunique()
 
@@ -1264,6 +1258,12 @@ def ranking_proveedor(yo):
         mostrar(fig, "g_rk_prods")
 
 
+# Botón del buscador -> columna por la que se ordena la tabla (None = alfabético)
+ORDEN_RUBRO = {"Todo": "art", "Proveedor": None, "Producto": "prod", "Marca": "marcas", "Región": "regiones",
+               "Artículo": "art"}
+COLUMNA_METRICA = {col: et for et, (col, *_) in METRICAS.items()}
+
+
 def buscar_proveedores(q: str, rubro: str) -> pd.DataFrame:
     """Proveedores cuyo texto contiene todas las palabras escritas (sin acentos ni mayúsculas, en cualquier orden),
     en un rubro o en todos. Devuelve, por proveedor, los elementos de cada rubro donde coincidió."""
@@ -1314,8 +1314,13 @@ def ranking_programa():
     q = st.session_state.get("q_prov", "")
     rubro = st.session_state.get("rubro") or "Todo"
     res = buscar_proveedores(q, rubro)
-    with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato y elige en qué rubro buscar. La tabla muestra el "
-                 "lugar de cada proveedor en cada indicador.", extra=f"{len(res):,} de {N} proveedores"):
+    # El botón elegido también ordena la tabla de mayor a menor en su columna (Proveedor: de la A a la Z)
+    col_orden = ORDEN_RUBRO[rubro]
+    texto_orden = (f"Orden: {COLUMNA_METRICA[col_orden].lower()}, de más a menos" if col_orden
+                   else "Orden: alfabético")
+    with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato y elige en qué rubro buscar; el botón que elijas "
+                 "también ordena la tabla de mayor a menor en esa columna.",
+                 extra=[f"{len(res):,} de {N} proveedores", texto_orden]):
         c1, c2 = st.columns([3, 2], vertical_alignment="center")
         with c1, st.container(key="buscar_prov"):
             md(f'<span class="lupa">{svg("buscar", 16)}</span>')
@@ -1325,7 +1330,8 @@ def ranking_programa():
             st.segmented_control("Buscar en", ["Todo", *RUBROS], default="Todo", key="rubro",
                                  label_visibility="collapsed")
         palabras = norm_txt(q).split()
-        orden = m.loc[res.index].sort_values(["rk_art", "nombre"])
+        orden = m.loc[res.index]
+        orden = orden.sort_values([f"rk_{col_orden}", "nombre"]) if col_orden else orden.sort_values("nombre")
         filas = []
         for cve, x in orden.iterrows():
             celdas = [escape(x.nombre) + f"<small>CVE {escape(cve)}</small>"]
@@ -1339,8 +1345,11 @@ def ranking_programa():
                 celdas.append(f'<small class="coincide">{"<br>".join(txt)}</small>')
             filas.append(celdas)
         if filas:
-            tabla(["Proveedor", *list(METRICAS)] + (["Coincide en"] if palabras else []), filas,
-                  numericas=(1, 2, 3, 4), alto=420)
+            # La columna por la que se ordena va en color de acento con su flecha
+            cab = [f'<span class="ordenada">{h}{svg("flecha", 12)}</span>'
+                   if (h == "Proveedor") == (col_orden is None) and (col_orden is None or METRICAS[h][0] == col_orden)
+                   else h for h in ["Proveedor", *list(METRICAS)]]
+            tabla(cab + (["Coincide en"] if palabras else []), filas, numericas=(1, 2, 3, 4), alto=420)
         else:
             md('<div class="lb-mas">Ningún proveedor coincide. Prueba con otra palabra o busca en «Todo».</div>')
 
@@ -1420,7 +1429,7 @@ def vista_proveedor(yo):
        f'</div></div>')
     indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("surtido", "Tu surtido"),
             ("precios", "Tu precio en el mercado"), ("programa", "Proveedores por rangos"), ("regiones", "Cobertura"),
-            ("vigencia", "Vigencias"), ("articulos", "Tus artículos")])
+            ("articulos", "Tus artículos")])
 
     # 1. Resumen
     seccion("Resumen", "Lo principal de tu participación en el programa.", "resumen")
@@ -1452,14 +1461,8 @@ def vista_proveedor(yo):
     hall.append((P627, "mapa", f"Tienes <b>cobertura nacional</b>: llegas a las {len(REGIONES)} regiones." if r.nacional
                  else f"Llegas a <b>{len(regs_mias)} de {len(REGIONES)}</b> gerencias regionales: "
                       f"<b>{escape(', '.join(REGIONES[s][0] for s in REGIONES if s in regs_mias))}</b>."))
-    pronto = mio[mio.DIAS.between(0, 30)]
-    if len(pronto):
-        hall.append((P7420, "calendario", f"<b>{len(pronto):,}</b> de tus artículos vencen en los próximos 30 días; el "
-                                          f"primero el <b>{pronto.VIG_FECHA.min():%d/%m/%Y}</b>."))
-    else:
-        prox = mio.loc[mio.DIAS >= 0, "VIG_FECHA"].min()
-        hall.append((P1255_60, "calendario", "Ninguno de tus artículos vence en los próximos 30 días"
-                     + (f"; la vigencia más próxima es el <b>{prox:%d/%m/%Y}</b>." if pd.notna(prox) else ".")))
+    med_costo = m.costo.median()
+    hall.append((P1255_60, "precio", f"Tu costo unitario mediano es <b>{dinero(r.costo)}</b> por pieza; el del programa es <b>{dinero(med_costo)}</b>."))
     md('<div style="height:4px"></div>')
     lectura_rapida(hall)
 
@@ -1533,10 +1536,6 @@ def vista_proveedor(yo):
                       '<span class="chip alto">Sin cobertura</span>', f"{int(reg.at[s, 'prov'])}"] for s in REGIONES]
             tabla(["Región", "Tus artículos", "Proveedores en la región"], filas, numericas=(1, 2))
 
-    # 6. Vigencias
-    seccion("Vigencias", "Cuánto falta para que venza la vigencia de tus artículos.", "vigencia")
-    seccion_vigencias(mio, propio=True)
-
     # 7. Artículos
     seccion("Tus artículos", "Todos tus artículos vigentes; escribe para filtrar.", "articulos")
     with tarjeta("Listado de artículos", "a_tabla", extra=f"{r.art:,} artículos"):
@@ -1552,37 +1551,13 @@ def vista_proveedor(yo):
         filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}</small>", escape(x.PRODUCTO), escape(x.MARCA),
                   escape(x.PRESENTACION),
                   "Nacional" if x.ALCANCE == "Nacional" else escape(" ".join(x.REGIONES)) or "–",
-                  dinero(x.COSTO_UNIT), "–" if pd.isna(x.VIG_FECHA) else f"{x.VIG_FECHA:%d/%m/%Y}"]
+                  dinero(x.COSTO_UNIT)]
                  for x in d.itertuples()]
         if filas:
-            tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario", "Vigencia"], filas,
-                  numericas=(5, 6), alto=480)
+            tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario"], filas,
+                  numericas=(5,), alto=480)
         else:
             md('<div class="lb-mas">Sin coincidencias.</div>')
-
-
-def seccion_vigencias(d, propio):
-    a, b = st.columns([2, 3], gap="medium")
-    with a:
-        with tarjeta("Artículos por rango de vigencia", f"v_rangos_{propio}", "Días que faltan para el vencimiento.",
-                     extra=f"{len(d):,} artículos"):
-            orden = [x[1] for x in RANGOS_VIG] + ["Sin fecha"]
-            c = d.RANGO_VIG.value_counts().reindex(orden, fill_value=0)
-            c = c[(c > 0) | c.index.isin(["0 a 30 días"])]
-            barras_rangos(c, f"g_v_{propio}", "artículos", colores=[COLOR_VIG[k] for k in c.index])
-    with b:
-        prox = d[d.DIAS.between(0, 60)].sort_values(["VIG_FECHA", "ARTICULO"])
-        with tarjeta("Próximos vencimientos", f"v_lista_{propio}", "Artículos que vencen en los próximos 60 días.",
-                     extra=f"{len(prox):,} artículos"):
-            if prox.empty:
-                md(f'<div class="lb-mas">{svg("ok", 16)}Sin vencimientos en los próximos 60 días.</div>')
-            else:
-                def dias_chip(x):
-                    clase = "alto" if x <= 15 else "medio" if x <= 30 else "bajo"
-                    return f'<span class="chip {clase}">en {int(x)} días</span>'
-                filas = [[f"{x.VIG_FECHA:%d/%m/%Y}", dias_chip(x.DIAS), escape(x.ARTICULO)]
-                         + ([] if propio else [escape(x.PROV_CORTO)]) for x in prox.itertuples()]
-                tabla(["Vence", "Faltan", "Artículo"] + ([] if propio else ["Proveedor"]), filas, alto=330)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1590,7 +1565,7 @@ def seccion_vigencias(d, propio):
 # ──────────────────────────────────────────────────────────────
 def vista_programa():
     indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("proveedores", "Proveedores por rangos"),
-            ("precios", "Rangos de precio"), ("regiones", "Cobertura"), ("vigencia", "Vigencias")])
+            ("precios", "Rangos de precio"), ("regiones", "Cobertura")])
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
 
@@ -1625,7 +1600,6 @@ def vista_programa():
     ])
     rango_moda = m.rango_art.value_counts()
     top5 = m.art.nlargest(5).sum() / m.art.sum()
-    pronto = unicos[unicos.DIAS.between(0, 30)]
     lectura_rapida([
         (P626, "rangos", f"La mayoría de los proveedores está en el rango de <b>{rango_moda.index[0]} artículos</b> "
                          f"(<b>{rango_moda.iloc[0]}</b> de {N})."),
@@ -1635,7 +1609,7 @@ def vista_programa():
                         f"<b>{int((~m.nacional).sum())}</b> son regionales."),
         (P627, "estrella", f"<b>{escape(prods_m.at[prods_m.prov.idxmax(), 'nombre'])}</b> "
                            f"es el producto con más proveedores: <b>{prods_m.prov.max()}</b> lo surten."),
-        (P1255_60, "calendario", f"<b>{len(pronto):,}</b> artículos vencen en los próximos 30 días."),
+        (P1255_60, "precio", f"El costo unitario mediano del programa es <b>{dinero(unicos.drop_duplicates('ART_ID').COSTO_UNIT.median())}</b> por pieza, sin impuestos."),
     ])
 
     ranking_programa()
@@ -1688,8 +1662,6 @@ def vista_programa():
                      for s, x in reg.sort_values("prov", ascending=False).iterrows()]
             tabla(["Región", "Proveedores", "Artículos"], filas, numericas=(1, 2))
 
-    seccion("Vigencias", "Cuánto falta para que venzan las vigencias de los artículos del programa.", "vigencia")
-    seccion_vigencias(unicos, propio=False)
 
 
 if yo:
