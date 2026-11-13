@@ -470,6 +470,9 @@ div[class*="st-key-card_"] { padding: 0 20px 16px 20px !important; gap: .5rem; }
 /* Rubros con listado (como el banner de app_mosaic): cada recuadro es un <details>; al hacer clic se despliega su
    listado con un buscador propio que filtra solo los renglones de ese recuadro */
 .kpis.listados { align-items: start; }
+.kpis.cuatro { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .kpis.cuatro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .kpis.cuatro { grid-template-columns: minmax(0, 1fr); } }
 details.kpi-det { border: 1.5px solid var(--c) !important; }
 details.kpi-det > summary { list-style: none; cursor: pointer; border-radius: 12px; transition: box-shadow .15s; }
 details.kpi-det > summary::-webkit-details-marker { display: none; }
@@ -478,13 +481,56 @@ details.kpi-det .flecha { color: var(--tenue); transition: transform .2s; margin
 details.kpi-det[open] .flecha { transform: rotate(180deg); color: var(--acento); }
 details.kpi-det .l, details.kpi-det .pista { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 details.kpi-det .pista { font-size: .82rem; color: var(--acento); font-weight: 500; margin-top: 4px; }
-.buscador { display: flex; align-items: center; gap: 8px; margin: 4px 18px 6px 18px; padding: 6px 10px;
-  background: var(--sutil); border: 1px solid var(--borde); border-radius: 8px; color: var(--tenue); }
-.buscador:focus-within { border-color: var(--acento); }
-.buscador input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: .9rem;
-  color: var(--texto); caret-color: var(--acento); font-family: inherit; }
+/* Buscador (el mismo de app_mosaic): filtra su listado o tabla y despliega sugerencias por sección */
+.buscador { position: relative; display: flex; align-items: center; gap: 8px; margin: 12px 18px 4px 18px;
+  padding: 7px 10px; background: var(--sutil); border: 1px solid var(--borde); border-radius: 8px; color: var(--tenue); }
+.buscador:focus-within { border-color: var(--acento); box-shadow: 0 0 0 3px rgb(var(--acento-rgb) / .12); }
+.buscador > svg { flex-shrink: 0; }
+.buscador input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: .92rem;
+  color: var(--texto); caret-color: var(--acento); font-family: inherit; padding: 0; }
 .buscador input::placeholder { color: var(--tenue); opacity: 1; }
-.buscador .cuenta { font-size: .76rem; white-space: nowrap; }
+.buscador input::-webkit-search-cancel-button { cursor: pointer; }
+.buscador .cuenta { font-size: .78rem; white-space: nowrap; }
+.tabla-busca .buscador { margin: 0 0 10px 0; }
+.tabla tr.vacio td { color: var(--tenue); font-style: italic; text-align: center; }
+.tabla tr[hidden] { display: none; }
+.buscador .sugerencias { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; list-style: none;
+  margin: 0; padding: 6px; max-height: 340px; overflow-y: auto; background: var(--card); border: 1px solid var(--borde);
+  border-radius: 10px; box-shadow: 0 12px 32px rgb(0 0 0 / .16); outline: none; }
+.buscador .sugerencias::-webkit-scrollbar { width: 6px; }
+.buscador .sugerencias::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 999px; }
+.buscador .sugerencias li { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 8px; border-radius: 6px;
+  font-size: .85rem; color: var(--texto); }
+.buscador .sugerencias[hidden], .buscador .sugerencias li[hidden] { display: none; }
+.buscador .sugerencias li.grupo { position: sticky; top: -6px; z-index: 1; margin-top: 6px; padding: 9px 8px 5px;
+  background: var(--card); border-top: 1px solid var(--linea); border-radius: 0; font-size: .68rem; font-weight: 700;
+  color: var(--tenue); text-transform: uppercase; letter-spacing: .06em; cursor: default; }
+.buscador .sugerencias li.grupo.primero { margin-top: 0; border-top: none; }
+.buscador .sugerencias li.grupo svg { color: var(--acento); flex-shrink: 0; }
+.buscador .sugerencias li.grupo b { flex: 1; font-weight: 700; }
+.buscador .sugerencias li.grupo em { font-style: normal; font-weight: 600; text-transform: none; letter-spacing: 0;
+  color: var(--acento); background: rgb(var(--acento-rgb) / .1); border-radius: 999px; padding: 1px 8px; }
+.buscador .sugerencias li.op { padding-left: 30px; cursor: pointer; }
+.buscador .sugerencias li.op span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buscador .sugerencias li.op small { font-size: .72rem; font-weight: 500; color: var(--tenue); white-space: nowrap; }
+.buscador .sugerencias li.op:hover, .buscador .sugerencias li.op.activa { background: rgb(var(--acento-rgb) / .1); }
+.buscador .sugerencias li.op.activa span { color: var(--acento); }
+.buscador .sugerencias mark { background: rgb(var(--acento-rgb) / .18); color: inherit; font-weight: 600;
+  border-radius: 3px; padding: 0 1px; }
+.buscador .sugerencias li.mas { gap: 6px; padding: 2px 8px 6px 30px; }
+.buscador .sugerencias li.mas span { font-size: .76rem; font-weight: 600; color: var(--acento); cursor: pointer;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid rgb(var(--acento-rgb) / .35); }
+.buscador .sugerencias li.mas span:hover { background: rgb(var(--acento-rgb) / .1); }
+.buscador .sugerencias li.mas span[hidden] { display: none; }
+.buscador .sugerencias li.mas span[data-acc="menos"] { color: var(--tenue); border-color: var(--borde); }
+.buscador .sugerencias li.pie-sug { position: sticky; bottom: -6px; z-index: 1; gap: 14px; margin: 6px -6px -6px;
+  padding: 8px 14px; background: var(--sutil); border-top: 1px solid var(--linea); border-radius: 0 0 10px 10px;
+  font-size: .72rem; color: var(--tenue); cursor: default; }
+.buscador .sugerencias kbd { font-family: inherit; font-size: .68rem; font-weight: 600; color: var(--texto2);
+  background: var(--card); border: 1px solid var(--borde); border-bottom-width: 2px; border-radius: 4px;
+  padding: 0 5px; margin-right: 3px; }
+/* La tarjeta y el contenedor de la tabla no recortan la lista de sugerencias */
+div[class*="st-key-card_"], div[class*="st-key-card_"] [data-testid="stMarkdownContainer"] { overflow: visible !important; }
 details.kpi-det .nombres { list-style: none; margin: 0 18px 14px 18px; padding: 0 4px 0 0; max-height: 320px;
   overflow-y: auto; border-top: 1px solid var(--linea); }
 details.kpi-det .nombres li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
@@ -545,14 +591,6 @@ details.kpi-det .nombres::-webkit-scrollbar-thumb { background: var(--borde); bo
 .chip.medio { color: var(--oro); border-color: rgb(188 149 92 / .55); background: rgb(188 149 92 / .1); }
 .chip.alto { color: var(--alerta); border-color: rgb(230 57 57 / .45); background: rgb(230 57 57 / .08); }
 
-/* Buscador de artículos */
-.st-key-buscar_art { position: relative; gap: 0 !important; }
-.st-key-buscar_art .stElementContainer:has(.lupa) { position: absolute; left: 12px; top: 0; bottom: 0; z-index: 1;
-  display: flex; align-items: center; width: auto !important; pointer-events: none; }
-.st-key-buscar_art .lupa { display: flex; color: var(--tenue); }
-.st-key-buscar_art [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
-.st-key-buscar_art input { padding-left: 34px !important; }
-
 /* Ranking: lugar, selector de indicador y tarjetas de posición */
 .lugar { display: inline-grid; place-items: center; min-width: 34px; height: 24px; border-radius: 999px; padding: 0 7px;
   font-size: .76rem; font-weight: 700; background: var(--sutil); color: var(--texto2); border: 1px solid var(--borde); }
@@ -574,19 +612,8 @@ details.kpi-det .nombres::-webkit-scrollbar-thumb { background: var(--borde); bo
 .rk .pos small { font-size: .8rem; font-weight: 600; color: var(--tenue); }
 .rk .val { font-size: .8rem; color: var(--texto3); }
 @media (max-width: 1100px) { .rk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-/* Buscador de proveedores (vista de administrador) */
-.st-key-buscar_prov { position: relative; gap: 0 !important; }
-.st-key-buscar_prov .stElementContainer:has(.lupa) { position: absolute; left: 12px; top: 0; bottom: 0; z-index: 1;
-  display: flex; align-items: center; width: auto !important; pointer-events: none; }
-.st-key-buscar_prov .lupa { display: flex; color: var(--tenue); }
-.st-key-buscar_prov [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
-.st-key-buscar_prov input { padding-left: 34px !important; }
 .tabla th .ordenada { display: inline-flex; align-items: center; gap: 4px; color: var(--acento); font-weight: 700; }
 .tabla td .lugar { margin-left: 6px; height: 20px; min-width: 30px; font-size: .7rem; }
-.rubro { display: inline-block; font-size: .7rem; font-weight: 600; color: var(--acento); border-radius: 999px;
-  background: rgb(var(--acento-rgb) / .1); padding: 1px 8px; margin: 1px 4px 1px 0; white-space: nowrap; }
-.tabla small.coincide { color: var(--texto3); white-space: normal; max-width: 340px; }
-.tabla small.coincide mark { background: rgb(var(--acento-rgb) / .18); color: inherit; border-radius: 3px; padding: 0 1px; }
 @media (max-width: 640px) { .rk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .lb-mas { font-size: .84rem; color: var(--tenue); padding: 10px 0; display: flex; gap: 8px; align-items: center; }
@@ -672,48 +699,216 @@ def guia(texto):
     md(f'<div class="guia">{svg("idea", 16)}<span>{texto}</span></div>')
 
 
-def tabla(encabezados, filas, numericas=(), alto=None):
+def tabla(encabezados, filas, numericas=(), alto=None, buscar=None, busca_extra=None, sugerencias=None):
+    """buscar: texto de ayuda del buscador que filtra los renglones mientras se escribe (sin él, no hay buscador).
+    busca_extra: por renglón, texto que no se ve pero también se busca (claves, razón social, productos…).
+    sugerencias: {sección: Serie valor -> cifra} o {sección: (Serie, unidad)}; se ofrecen al enfocar el buscador."""
     th = "".join(f'<th class="{"num" if i in numericas else ""}">{h}</th>' for i, h in enumerate(encabezados))
-    tr = "".join("<tr>" + "".join(f'<td class="{"num" if i in numericas else ""} {"fuerte" if i == 0 else ""}">{v}</td>'
-                                  for i, v in enumerate(fila)) + "</tr>" for fila in filas)
+    extra = busca_extra or [""] * len(filas)
+    tr = "".join(
+        (f'<tr data-busca="{escape(x)}">' if x else "<tr>")
+        + "".join(f'<td class="{"num" if i in numericas else ""} {"fuerte" if i == 0 else ""}">{v}</td>'
+                  for i, v in enumerate(fila)) + "</tr>"
+        for fila, x in zip(filas, extra))
+    if buscar:
+        tr += f'<tr class="vacio" hidden><td colspan="{len(encabezados)}">Sin coincidencias.</td></tr>'
     marco = f' scroll" style="max-height:{alto}px' if alto else ""
-    md(f'<div class="tabla-wrap{marco}"><table class="tabla"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>')
+    html = (f'<div class="tabla-wrap{marco}"><table class="tabla"><thead><tr>{th}</tr></thead>'
+            f'<tbody>{tr}</tbody></table></div>')
+    md(f'<div class="buscable tabla-busca" data-total="{len(filas):,}">{buscador(buscar, sugerencias)}{html}</div>'
+       if buscar else html)
 
 
-# Filtro de los listados mientras se escribe (sin acentos ni mayúsculas; cada palabra en cualquier orden).
-# st.markdown no ejecuta JavaScript: el contenido va con st.markdown y solo el script con st.html. El script escucha
-# en todo el documento y cada ejecución quita los escuchas de la anterior. Dentro no puede ir el signo «menor que»
-# (st.html descarta el bloque si lo encuentra), por eso las comparaciones se escriben al revés.
+# Buscador del dashboard base (app_mosaic.py): filtra los renglones mientras se escribe (sin acentos ni mayúsculas;
+# cada palabra en cualquier orden) y, al enfocarlo, despliega sugerencias por sección (Proveedor, Producto, Marca…)
+# que se eligen con el ratón o con las flechas y Enter. st.markdown no ejecuta JavaScript: el contenido va con
+# st.markdown y solo el script con st.html, una vez al final de la página. El script escucha en todo el documento,
+# sirve para cualquier elemento .buscable (listados y tablas) y cada ejecución quita los escuchas de la anterior.
+# Dentro no puede ir el signo «menor que» (st.html descarta el bloque si lo encuentra): las comparaciones van al revés.
 BUSCADOR_JS = r"""<script>
 {
-  (window.__listadoEscuchas || []).forEach(([tipo, f]) => document.removeEventListener(tipo, f));
-  window.__listadoEscuchas = [];
-  const escuchar = (tipo, f) => { document.addEventListener(tipo, f); window.__listadoEscuchas.push([tipo, f]); };
+  (window.__buscadorEscuchas || []).forEach(([tipo, f]) => document.removeEventListener(tipo, f));
+  window.__buscadorEscuchas = [];
+  const escuchar = (tipo, f) => { document.addEventListener(tipo, f); window.__buscadorEscuchas.push([tipo, f]); };
   const norm = t => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-  escuchar("input", e => {
-    const caja = e.target.closest && e.target.closest(".buscador input");
-    if (!caja) return;
-    const marco = caja.closest(".buscable"), q = norm(caja.value), palabras = q.split(/\s+/).filter(Boolean);
-    let n = 0;
-    marco.querySelectorAll(".nombres li:not(.vacio)").forEach(li => {
-      const texto = norm(li.textContent + " " + (li.dataset.busca || ""));
-      const ok = palabras.every(p => texto.includes(p));
-      li.hidden = !ok;
-      n += ok;
+  const entrada = e => e.target.closest && e.target.closest(".buscador input");
+  // Resalta con «mark» las palabras escritas dentro del texto original (con acentos y mayúsculas intactos)
+  const marcar = (el, texto, palabras) => {
+    let base = "";
+    const pos = [], si = new Array(texto.length).fill(false);
+    for (let i = 0; texto.length > i; i++) {
+      const c = texto[i].normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      base += c;
+      for (let k = 0; c.length > k; k++) pos.push(i);
+    }
+    palabras.forEach(p => {
+      for (let j = base.indexOf(p); j >= 0; j = base.indexOf(p, j + 1))
+        for (let k = j; j + p.length > k; k++) si[pos[k]] = true;
     });
-    marco.querySelector(".nombres .vacio").hidden = n > 0;
-    marco.querySelector(".buscador .cuenta").textContent = q ? n.toLocaleString("es-MX") + " de " + marco.dataset.total : "";
+    el.textContent = "";
+    for (let i = 0; texto.length > i;) {
+      let j = i;
+      while (texto.length > j && si[j] === si[i]) j++;
+      const trozo = document.createTextNode(texto.slice(i, j));
+      if (si[i]) { const m = document.createElement("mark"); m.appendChild(trozo); el.appendChild(m); }
+      else el.appendChild(trozo);
+      i = j;
+    }
+  };
+  // Sugerencias por sección: sin texto se ven las primeras 3 de cada una; al escribir, hasta 4 de las que contienen
+  // todas las palabras. «Mostrar más» suma 10 opciones a su sección.
+  const PASO = 10;
+  const sugerir = caja => {
+    const lista = caja.parentElement.querySelector(".sugerencias");
+    if (!lista) return;
+    const extra = lista.__extra = lista.__extra || {};
+    const q = norm(caja.value), palabras = q.split(/\s+/).filter(Boolean), base = q ? 4 : 3;
+    let total = 0, cab = null, vistos = 0, hallados = 0, primero = true, tope = base;
+    const cerrar = () => {
+      if (!cab) return;
+      cab.hidden = !vistos;
+      cab.classList.toggle("primero", primero && vistos > 0);
+      if (vistos) primero = false;
+      cab.querySelector("em").textContent = hallados > vistos ? vistos + " de " + hallados.toLocaleString("es-MX")
+                                                              : hallados;
+    };
+    lista.querySelectorAll("li").forEach(li => {
+      if (li.classList.contains("grupo")) {
+        cerrar(); cab = li; vistos = hallados = 0; tope = base + (extra[li.dataset.g] || 0); return;
+      }
+      if (li.classList.contains("mas")) {
+        const quedan = hallados - vistos, mas = li.querySelector("[data-acc=mas]"), menos = li.querySelector("[data-acc=menos]");
+        mas.hidden = !quedan;
+        mas.textContent = "Mostrar " + Math.min(PASO, quedan).toLocaleString("es-MX") + " más";
+        menos.hidden = !(extra[cab.dataset.g] && vistos > base);
+        li.hidden = mas.hidden && menos.hidden;
+        return;
+      }
+      if (!li.classList.contains("op")) return;
+      li.classList.remove("activa");
+      const v = norm(li.dataset.v), ok = !q || (v !== q && palabras.every(p => v.includes(p)));
+      const ver = ok && tope > vistos;
+      hallados += ok;
+      vistos += ver;
+      total += ver;
+      li.hidden = !ver;
+      if (ver) marcar(li.querySelector("span"), li.dataset.v, palabras);
+    });
+    cerrar();
+    lista.hidden = total === 0;
+    const prim = q && lista.querySelector("li.op:not([hidden])");
+    if (prim) prim.classList.add("activa");
+  };
+  const elegir = (caja, li) => {
+    caja.value = li.dataset.v;
+    caja.dispatchEvent(new Event("input", {bubbles: true}));
+    caja.parentElement.querySelector(".sugerencias").hidden = true;
+  };
+  escuchar("focusin", e => {
+    const caja = entrada(e), lista = caja && caja.parentElement.querySelector(".sugerencias");
+    if (!lista || e.relatedTarget === lista) return;
+    lista.__extra = {};
+    sugerir(caja);
   });
-  // Escape limpia el buscador del listado
+  // Se cierra solo si el foco sale del buscador (campo o lista)
+  escuchar("focusout", e => {
+    const caja_b = e.target.closest && e.target.closest(".buscador"), lista = caja_b && caja_b.querySelector(".sugerencias");
+    if (!lista || (e.relatedTarget && caja_b.contains(e.relatedTarget))) return;
+    lista.hidden = true;
+  });
+  escuchar("mouseup", e => {
+    const lista = e.target.closest && e.target.closest(".sugerencias");
+    if (lista && document.activeElement === lista)
+      lista.closest(".buscador").querySelector("input").focus({preventScroll: true});
+  });
+  // mousedown y no click: asi el campo no pierde el foco antes de elegir
+  escuchar("mousedown", e => {
+    const li = e.target.closest && e.target.closest(".sugerencias li");
+    if (!li) return;
+    e.preventDefault();
+    const caja = li.closest(".buscador").querySelector("input"), acc = e.target.closest("[data-acc]");
+    if (li.classList.contains("op")) elegir(caja, li);
+    else if (acc) {
+      let cab = li.previousElementSibling;
+      while (cab && !cab.classList.contains("grupo")) cab = cab.previousElementSibling;
+      const extra = li.parentElement.__extra = li.parentElement.__extra || {}, g = cab.dataset.g;
+      extra[g] = acc.dataset.acc === "mas" ? (extra[g] || 0) + PASO : 0;
+      sugerir(caja);
+      if (acc.dataset.acc === "menos") cab.scrollIntoView({block: "nearest"});
+    }
+  });
   escuchar("keydown", e => {
-    const caja = e.target.closest && e.target.closest(".buscador input");
-    if (caja && e.key === "Escape" && caja.value) {
+    const caja = entrada(e), lista = caja && caja.parentElement.querySelector(".sugerencias");
+    if (caja && e.key === "Escape" && (!lista || lista.hidden) && caja.value) {
       caja.value = "";
       caja.dispatchEvent(new Event("input", {bubbles: true}));
+      return;
     }
+    if (!lista || lista.hidden) return;
+    const vis = Array.from(lista.querySelectorAll("li.op:not([hidden])"));
+    let i = vis.findIndex(li => li.classList.contains("activa"));
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (i >= 0) vis[i].classList.remove("activa");
+      i = (i + (e.key === "ArrowDown" ? 1 : vis.length - 1 + (0 > i ? 1 : 0))) % vis.length;
+      vis[i].classList.add("activa");
+      vis[i].scrollIntoView({block: "nearest"});
+    } else if (e.key === "Enter" && vis.length) {
+      e.preventDefault();
+      elegir(caja, vis[Math.max(i, 0)]);
+    } else if (e.key === "Escape") {
+      lista.hidden = true;
+    }
+  });
+  escuchar("input", e => {
+    const caja = entrada(e);
+    if (!caja) return;
+    if (e.isTrusted) sugerir(caja);
+    const caja_b = caja.closest(".buscable"), q = norm(caja.value), palabras = q.split(/\s+/).filter(Boolean);
+    let n = 0;
+    caja_b.querySelectorAll(".nombres li:not(.vacio), tbody tr:not(.vacio)").forEach(r => {
+      // Texto visible del renglón más el texto oculto data-busca; cada palabra debe aparecer en algún lado
+      const texto = norm(r.textContent + " " + (r.dataset.busca || ""));
+      const ok = palabras.every(p => texto.includes(p));
+      r.hidden = !ok;
+      n += ok;
+    });
+    caja_b.querySelector(".vacio").hidden = n > 0;
+    caja_b.querySelector(".buscador .cuenta").textContent = q ? n.toLocaleString("es-MX") + " de " + caja_b.dataset.total : "";
   });
 }
 </script>"""
+
+ICONO_GRUPO = {"Proveedor": "proveedor", "Marca": "marca", "Producto": "producto", "Artículo": "articulo",
+               "Región": "mapa"}
+PIE_SUGERENCIAS = ('<li class="pie-sug"><span><kbd>↑</kbd><kbd>↓</kbd> moverse</span><span><kbd>Enter</kbd> elegir'
+                   '</span><span><kbd>Esc</kbd> cerrar</span></li>')
+
+
+def buscador(texto, sugerencias=None):
+    """Campo de búsqueda con lupa y contador. sugerencias: {sección: Serie valor -> cifra} o
+    {sección: (Serie, unidad)}; se despliegan por sección al enfocar el campo y al elegir una se filtra con ella."""
+    grupos = []
+    for g, valores in (sugerencias or {}).items():
+        serie, unidad = valores if isinstance(valores, tuple) else (valores, "art.")
+        if not len(serie):
+            continue
+        grupos.append(
+            f'<li class="grupo" data-g="{escape(g)}" hidden>{svg(ICONO_GRUPO.get(g, "buscar"), 14)}<b>{escape(g)}</b>'
+            f'<em></em></li>'
+            + "".join(f'<li class="op" data-v="{escape(str(v))}" hidden><span>{escape(str(v))}</span>'
+                      f'<small>{n:,} {unidad}</small></li>' for v, n in serie.items() if pd.notna(v))
+            + '<li class="mas" hidden><span data-acc="mas">Mostrar más</span>'
+              '<span data-acc="menos" hidden>Mostrar menos</span></li>')
+    lista = "".join(grupos)
+    return (f'<label class="buscador">{svg("buscar", 16)}<input type="search" placeholder="{escape(texto)}"'
+            f' autocomplete="off"><span class="cuenta"></span>'
+            f'{f"<ul class=sugerencias tabindex=-1 hidden>{lista}{PIE_SUGERENCIAS}</ul>" if lista else ""}</label>')
+
+
+def sugerencias_de(d, columnas, unidad="art.") -> dict:
+    """{sección: (Serie valor -> artículos distintos, unidad)}, de más a menos. columnas: {sección: columna de d}."""
+    return {g: (d.groupby(c)["ART_ID"].nunique().sort_values(ascending=False), unidad) for g, c in columnas.items()}
 
 
 def listados(recuadros):
@@ -729,11 +924,9 @@ def listados(recuadros):
             f'<div class="ico">{svg(icono, 24)}</div><div><div class="l" title="{escape(titulo)}">{escape(titulo)}</div>'
             f'<div class="v">{valor}</div><div class="s">{sub}</div><div class="pista">Clic para ver el listado</div></div>'
             f'<span class="flecha">{svg("flecha", 18)}</span></div></summary>'
-            f'<label class="buscador">{svg("buscar", 16)}<input type="search" placeholder="Buscar en '
-            f'{escape(titulo.lower())}…" autocomplete="off"><span class="cuenta"></span></label>'
+            f'{buscador(f"Buscar en {titulo.lower()}…")}'
             f'<ul class="nombres">{lis}<li class="vacio" hidden>Sin coincidencias.</li></ul></details>')
     md(f'<div class="kpis listados">{"".join(html)}</div>')
-    st.html(BUSCADOR_JS, unsafe_allow_javascript=True)
 
 
 def kpi_html(etiqueta, valor, sub, icono, color):
@@ -1102,7 +1295,7 @@ def entrar(codigo: str) -> bool:
 
 
 def salir():
-    for k in ["usuario", "ver", "buscar_art_q"]:
+    for k in ["usuario", "ver", "resaltar"]:
         st.session_state.pop(k, None)
 
 
@@ -1258,52 +1451,9 @@ def ranking_proveedor(yo):
         mostrar(fig, "g_rk_prods")
 
 
-# Botón del buscador -> columna por la que se ordena la tabla (None = alfabético)
-ORDEN_RUBRO = {"Todo": "art", "Proveedor": None, "Producto": "prod", "Marca": "marcas", "Región": "regiones",
-               "Artículo": "art"}
-COLUMNA_METRICA = {col: et for et, (col, *_) in METRICAS.items()}
-
-
-def buscar_proveedores(q: str, rubro: str) -> pd.DataFrame:
-    """Proveedores cuyo texto contiene todas las palabras escritas (sin acentos ni mayúsculas, en cualquier orden),
-    en un rubro o en todos. Devuelve, por proveedor, los elementos de cada rubro donde coincidió."""
-    palabras = norm_txt(q).split()
-    rubros = RUBROS if rubro == "Todo" else [rubro]
-    if not palabras:
-        return pd.DataFrame({"coincide": [[] for _ in m.index]}, index=m.index)
-    ok = pd.Series(True, index=m.index)
-    for p in palabras:   # cada palabra debe aparecer en alguno de los rubros elegidos
-        ok &= pd.concat([BUSCA_NORM[r].str.contains(p, regex=False) for r in rubros], axis=1).any(axis=1)
-    salida = []
-    for cve in m.index[ok]:
-        hallado = []
-        for r in rubros:
-            partes = [t for t, tn in zip(BUSCA.at[cve, r].split(" | "), BUSCA_NORM.at[cve, r].split(" | "))
-                      if any(p in tn for p in palabras)]
-            if partes:
-                hallado.append((r, partes))
-        salida.append((cve, hallado))
-    return pd.DataFrame({"coincide": [h for _, h in salida]}, index=[c for c, _ in salida])
-
-
-def resaltar_palabras(texto, palabras):
-    """Envuelve en <mark> las palabras buscadas, respetando acentos y mayúsculas del original."""
-    base = norm_txt(texto)
-    marcas = [False] * len(texto)
-    if len(base) == len(texto):   # solo si quitar acentos no cambia el largo del texto
-        for p in palabras:
-            i = base.find(p)
-            while i >= 0:
-                for k in range(i, i + len(p)):
-                    marcas[k] = True
-                i = base.find(p, i + 1)
-    salida, abierto = "", False
-    for ch, mk in zip(texto, marcas):
-        if mk != abierto:
-            salida += "<mark>" if mk else "</mark>"
-            abierto = mk
-        salida += escape(ch)
-    return salida + ("</mark>" if abierto else "")
+# Botones de la tabla de proveedores -> columna por la que se ordena (None = alfabético)
+ORDEN_PROV = {"Artículos": "art", "Productos": "prod", "Marcas": "marcas", "Regiones": "regiones",
+              "Nombre (A a la Z)": None}
 
 
 def ranking_programa():
@@ -1311,55 +1461,42 @@ def ranking_programa():
     seccion("Ranking y comparativas", "Busca a cualquier proveedor por nombre, CVE, producto, marca, región o artículo "
             "y ve su lugar en cada indicador; abajo, quién tiene más y quién tiene menos.", "ranking")
 
-    q = st.session_state.get("q_prov", "")
-    rubro = st.session_state.get("rubro") or "Todo"
-    res = buscar_proveedores(q, rubro)
-    # El botón elegido también ordena la tabla de mayor a menor en su columna (Proveedor: de la A a la Z)
-    col_orden = ORDEN_RUBRO[rubro]
-    texto_orden = (f"Orden: {COLUMNA_METRICA[col_orden].lower()}, de más a menos" if col_orden
-                   else "Orden: alfabético")
-    with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato y elige en qué rubro buscar; el botón que elijas "
-                 "también ordena la tabla de mayor a menor en esa columna.",
-                 extra=[f"{len(res):,} de {N} proveedores", texto_orden]):
-        c1, c2 = st.columns([3, 2], vertical_alignment="center")
-        with c1, st.container(key="buscar_prov"):
-            md(f'<span class="lupa">{svg("buscar", 16)}</span>')
-            st.text_input("Buscar", key="q_prov", label_visibility="collapsed",
-                          placeholder="Nombre, CVE, producto, marca, región o artículo…")
-        with c2:
-            st.segmented_control("Buscar en", ["Todo", *RUBROS], default="Todo", key="rubro",
-                                 label_visibility="collapsed")
-        palabras = norm_txt(q).split()
-        orden = m.loc[res.index]
-        orden = orden.sort_values([f"rk_{col_orden}", "nombre"]) if col_orden else orden.sort_values("nombre")
-        filas = []
-        for cve, x in orden.iterrows():
-            celdas = [escape(x.nombre) + f"<small>CVE {escape(cve)}</small>"]
-            celdas += [f"{x[c]:,}{lugar(x[f'rk_{c}'])}" for c, *_ in METRICAS.values()]
-            if palabras:
-                txt = []
-                for r, partes in res.at[cve, "coincide"]:
-                    muestra = ", ".join(resaltar_palabras(p, palabras) for p in partes[:3])
-                    txt.append(f'<span class="rubro">{r}</span>{muestra}'
-                               + (f" y {len(partes) - 3} más" if len(partes) > 3 else ""))
-                celdas.append(f'<small class="coincide">{"<br>".join(txt)}</small>')
-            filas.append(celdas)
-        if filas:
-            # La columna por la que se ordena va en color de acento con su flecha
-            cab = [f'<span class="ordenada">{h}{svg("flecha", 12)}</span>'
-                   if (h == "Proveedor") == (col_orden is None) and (col_orden is None or METRICAS[h][0] == col_orden)
-                   else h for h in ["Proveedor", *list(METRICAS)]]
-            tabla(cab + (["Coincide en"] if palabras else []), filas, numericas=(1, 2, 3, 4), alto=420)
-        else:
-            md('<div class="lb-mas">Ningún proveedor coincide. Prueba con otra palabra o busca en «Todo».</div>')
+    # Los botones ordenan la tabla de mayor a menor en esa columna; el buscador filtra mientras se escribe
+    orden_por = st.session_state.get("orden_prov") or "Artículos"
+    col_orden = ORDEN_PROV[orden_por]
+    with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato: nombre, CVE, razón social, producto, marca, "
+                 "región o artículo. Al hacer clic en el buscador aparecen sugerencias por rubro. Los botones ordenan "
+                 "la tabla de mayor a menor.", extra=[f"{N} proveedores", f"Orden: {orden_por.lower()}"]):
+        st.segmented_control("Ordenar por", list(ORDEN_PROV), default="Artículos", key="orden_prov",
+                             label_visibility="collapsed")
+        orden = m.sort_values([f"rk_{col_orden}", "nombre"]) if col_orden else m.sort_values("nombre")
+        filas = [[escape(x.nombre) + f"<small>CVE {escape(cve)}</small>"]
+                 + [f"{x[c]:,}{lugar(x[f'rk_{c}'])}" for c, *_ in METRICAS.values()] for cve, x in orden.iterrows()]
+        # La columna por la que se ordena va en color de acento con su flecha
+        cab = [f'<span class="ordenada">{h}{svg("flecha", 12)}</span>'
+               if (h == "Proveedor") == (col_orden is None) and (col_orden is None or METRICAS[h][0] == col_orden)
+               else h for h in ["Proveedor", *list(METRICAS)]]
 
-        sel = None
-        if palabras and len(res):
-            c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
-            sel = c1.selectbox("Resaltar en las gráficas", list(orden.index), key="resaltar",
-                               format_func=lambda c: f"{m.at[c, 'nombre']} · CVE {c}")
-            c2.button("Abrir su tablero", icon=":material/open_in_new:", key="abrir", width="stretch",
-                      on_click=lambda c=sel: st.session_state.update(ver=c))
+        def desc(serie):
+            return serie.sort_values(ascending=False)
+
+        sugerencias = {
+            "Proveedor": (desc(m.set_index("nombre")["art"]), "art."),
+            "Producto": (desc(prods_m.set_index("nombre")["prov"]), "prov."),
+            "Marca": (desc(unicos.groupby("MARCA")["CVE"].nunique()), "prov."),
+            "Región": (desc(pd.Series({REGIONES[s_][0]: int(reg.at[s_, "prov"]) for s_ in REGIONES})), "prov."),
+            "Artículo": (desc(unicos.groupby("ARTICULO")["CVE"].nunique()), "prov."),
+        }
+        tabla(cab, filas, numericas=(1, 2, 3, 4), alto=420,
+              buscar="Buscar proveedor: nombre, CVE, producto, marca, región o artículo…",
+              busca_extra=[" | ".join(BUSCA.loc[cve]) for cve in orden.index], sugerencias=sugerencias)
+
+        c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
+        sel = c1.selectbox("Resaltar en las gráficas", [""] + sorted(m.index, key=lambda c: m.at[c, "nombre"]),
+                           key="resaltar", format_func=lambda c: "Ninguno (escribe para buscar)" if not c
+                           else f"{m.at[c, 'nombre']} · CVE {c}") or None
+        c2.button("Abrir su tablero", icon=":material/open_in_new:", key="abrir", width="stretch", disabled=not sel,
+                  on_click=lambda c=sel: st.session_state.update(ver=c))
 
     st.write("")
     if sel:
@@ -1410,6 +1547,195 @@ def ranking_programa():
             fig.update_xaxes(gridcolor="rgba(0,0,0,0)", tickfont=dict(color=T["texto2"]))
             fig.update_yaxes(visible=False)
             mostrar(fig, "g_rk_alc")
+
+
+# ──────────────────────────────────────────────────────────────
+# COMPARAR POR PRODUCTO O ARTÍCULO (administrador)
+# ──────────────────────────────────────────────────────────────
+def chip_dif(pct):
+    """Diferencia contra la mediana: verde si es más barato, rojo si es más caro."""
+    if pd.isna(pct):
+        return "–"
+    clase = "bajo" if pct < -2 else "alto" if pct > 2 else "medio"
+    return f'<span class="chip {clase}">{pct:+.0f}%</span>'
+
+
+def grafica_precios(etiquetas, precios_, base, colores, clave, puntos=None, mediana=None, hover=None):
+    """Barras horizontales de precio por unidad, del más barato (arriba) al más caro. puntos: [(etiqueta, precio)]
+    de cada artículo, dibujados como puntos sobre la barra de su proveedor."""
+    fig = go.Figure(go.Bar(
+        x=precios_, y=etiquetas, orientation="h", marker_color=colores,
+        text=[f"${v:,.2f}" for v in precios_], textposition="outside", cliponaxis=False,
+        textfont=dict(color=T["texto2"], size=11), customdata=hover or etiquetas,
+        hovertemplate="<b>%{customdata}</b><br>$%{x:,.2f} por " + base + "<extra></extra>"))
+    if puntos:
+        fig.add_trace(go.Scatter(x=[p for _, p in puntos], y=[e for e, _ in puntos], mode="markers",
+                                 marker=dict(size=7, color=T["texto"], opacity=.55, line=dict(width=0)),
+                                 hovertemplate="Artículo: $%{x:,.2f} por " + base + "<extra></extra>"))
+    if mediana is not None:
+        fig.add_vline(x=mediana, line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana ${mediana:,.2f}",
+                      annotation_font_color=T["texto3"], annotation_position="top")
+    tope = max(max(precios_), max((p for _, p in puntos or []), default=0))
+    estilo(fig, max(220, 30 * len(etiquetas) + 60))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
+    fig.update_xaxes(visible=False, range=[0, tope * 1.25])
+    fig.update_layout(margin=dict(t=26, b=4, r=8))
+    mostrar(fig, clave)
+
+
+def comparar_producto():
+    c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
+    prod = c1.selectbox("Producto", list(prods_m.sort_values("nombre").index), key="cmp_prod",
+                        format_func=lambda p: f"{prods_m.at[p, 'nombre']} · "
+                                              f"{prods_m.at[p, 'prov']} {'proveedor' if prods_m.at[p, 'prov'] == 1 else 'proveedores'}")
+    d = unicos[unicos.PROD == prod]
+    provs = sorted(d.CVE.unique(), key=lambda c: m.at[c, "nombre"])
+    resaltar = c2.selectbox("Resaltar proveedor", [""] + provs, key=f"cmp_res_{prod}",
+                            format_func=lambda c: "Ninguno" if not c else m.at[c, "nombre"]) or None
+    con_precio = d.dropna(subset=["PRECIO_U", "BASE"])
+    bases = con_precio.BASE.value_counts()
+    base = bases.index[0] if len(bases) else None
+    if len(bases) > 1:   # mismo producto en kilos y en piezas, por ejemplo: se compara una unidad a la vez
+        base = st.segmented_control("Unidad", list(bases.index), default=base, key=f"cmp_base_{prod}",
+                                    format_func=lambda b: f"Precio por {b}") or base
+
+    # Por proveedor: artículos, marcas, cobertura y precio por unidad (mediana, mínimo y máximo de sus artículos)
+    g = d.groupby("CVE").agg(art=("ART_ID", "nunique"), marcas=("MARCA", "nunique"))
+    p = con_precio[con_precio.BASE == base].groupby("CVE")["PRECIO_U"].agg(["median", "min", "max"])
+    g = g.join(p)
+    mediana = p["median"].median() if len(p) else None
+    g["lugar"] = g["median"].rank(method="min")
+    g["dif"] = (g["median"] / mediana - 1) * 100 if mediana else float("nan")
+
+    md('<div class="kpis cuatro">' + "".join([
+        kpi_html("Proveedores", f"{len(g):,}", "lo surten", "proveedor", P626),
+        kpi_html("Artículos", f"{d.ART_ID.nunique():,}", "en este producto", "articulo", P7420),
+        kpi_html("Marcas", f"{d.MARCA.nunique():,}", "distintas", "marca", P1255),
+        kpi_html(f"Rango por {base or 'unidad'}", f"{dinero(p['median'].min())}" if len(p) else "–",
+                 f"a {dinero(p['median'].max())} · mediana {dinero(mediana)}" if len(p) else "Sin precio comparable",
+                 "balanza", P7421),
+    ]) + "</div>")
+    if len(g) == 1:
+        guia(f"Solo <b>{escape(m.at[g.index[0], 'nombre'])}</b> surte este producto: no hay otro proveedor con quien "
+             "compararlo.")
+
+    a, b = st.columns([3, 2], gap="medium")
+    with a:
+        orden = g.dropna(subset=["median"]).sort_values(["median", "art"], ascending=[True, False])
+        with tarjeta(f"Precio por {base} de cada proveedor", "cmp_p_precio",
+                     "La barra es el precio mediano de sus artículos; cada punto, un artículo. Arriba, el más barato.",
+                     extra=f"{len(orden)} proveedores"):
+            if orden.empty:
+                md('<div class="lb-mas">Sin precio por unidad para comparar.</div>')
+            else:
+                et = unicas([f"#{int(x.lugar)}  {corto(m.at[c, 'nombre'], 28)}" for c, x in orden.iterrows()])
+                pos = dict(zip(orden.index, et))
+                pts = [(pos[r.CVE], r.PRECIO_U) for r in con_precio[con_precio.BASE == base].itertuples()
+                       if r.CVE in pos]
+                grafica_precios(et, list(orden["median"]), base,
+                                [T["acento"] if c == resaltar else T["oro"] if x.lugar == 1 else alfa(T["verde"], .7)
+                                 for c, x in orden.iterrows()], "g_cmp_p_precio", puntos=pts, mediana=mediana,
+                                hover=[m.at[c, "nombre"] for c in orden.index])
+    with b:
+        orden_a = g.loc[sorted(g.index, key=lambda c: m.at[c, "nombre"])].sort_values("art", ascending=False,
+                                                                                    kind="stable")
+        with tarjeta("Artículos de cada proveedor", "cmp_p_art", "Cuántos artículos de este producto ofrece cada uno.",
+                     extra=f"{d.ART_ID.nunique():,} artículos"):
+            barras_ranking(orden_a.art.values, [m.at[c, "nombre"] for c in orden_a.index],
+                           orden_a.art.rank(ascending=False, method="min"), "g_cmp_p_art", T["verde"], "artículos",
+                           colores=[T["acento"] if c == resaltar else T["verde"] for c in orden_a.index])
+
+    st.write("")
+    with tarjeta("Detalle por proveedor", "cmp_p_tabla", "Ordenado del precio más bajo al más alto; la diferencia es "
+                 "contra la mediana de todos los proveedores de este producto."):
+        filas = []
+        for c, x in g.sort_values(["median", "art"], ascending=[True, False], na_position="last").iterrows():
+            nombre = escape(m.at[c, "nombre"])
+            filas.append([lugar(x.lugar) if pd.notna(x.lugar) else "–",
+                          (f"<b>{nombre}</b>" if c == resaltar else nombre) + f"<small>CVE {escape(c)}</small>",
+                          f"{x.art:,}", f"{x.marcas:,}",
+                          "Nacional" if m.at[c, "nacional"] else f"{m.at[c, 'regiones']} de {len(REGIONES)}",
+                          precio_u(x["median"], base),
+                          f"{precio_u(x['min'], base)}<small>a {precio_u(x['max'], base)}</small>"
+                          if pd.notna(x["min"]) else "–", chip_dif(x.dif)])
+        tabla(["Lugar", "Proveedor", "Artículos", "Marcas", "Cobertura", "Precio mediano", "Rango de sus artículos",
+               "Frente a la mediana"], filas, numericas=(2, 3, 5, 6, 7), alto=420)
+
+
+def comparar_articulo():
+    u = unicos.assign(clave=unicos.CVE + "|" + unicos.ART_ID).sort_values(["ARTICULO", "PROV_CORTO"])
+    fila = u.set_index("clave")
+    sel = st.selectbox("Artículo", list(u.clave), key="cmp_art",
+                       format_func=lambda k: f"{fila.at[k, 'ARTICULO']} · {fila.at[k, 'PROV_CORTO']} · "
+                                             f"ART. {fila.at[k, 'ART_ID']}")
+    a = fila.loc[sel]
+    pares = u[(u.PROD == a.PROD) & (u.BASE == a.BASE) & u.PRECIO_U.notna()].copy()
+    if pd.isna(a.PRECIO_U) or len(pares) < 2:
+        guia(f"<b>{escape(a.ARTICULO)}</b> no tiene otros artículos de <b>{escape(a.PRODUCTO)}</b> con precio por "
+             "unidad para compararlo.")
+        return
+    pares["lugar"] = pares.PRECIO_U.rank(method="min")
+    mediana = pares.PRECIO_U.median()
+    pares["dif"] = (pares.PRECIO_U / a.PRECIO_U - 1) * 100
+    k, n = int(pares.loc[pares.clave == sel, "lugar"].iat[0]), len(pares)
+    n_prov = pares.CVE.nunique()
+    dif_med = (a.PRECIO_U / mediana - 1) * 100
+
+    md('<div class="kpis cuatro">' + "".join([
+        kpi_html("Costo unitario", dinero(a.COSTO_UNIT), f"{escape(a.PRESENTACION)} · {escape(a.MARCA)}", "precio", P626),
+        kpi_html(f"Precio por {a.BASE}", precio_u(a.PRECIO_U, a.BASE), f"Mediana: {precio_u(mediana, a.BASE)}",
+                 "balanza", P7420),
+        kpi_html("Lugar por precio", f"#{k} de {n}", "1 = el más barato por unidad", "rangos", P1255),
+        kpi_html("Frente a la mediana", f"{dif_med:+.0f}%", "más barato" if dif_med < 0 else "más caro" if dif_med > 0
+                 else "igual a la mediana", "rangos", P7421),
+    ]) + "</div>")
+    guia(f"<b>{escape(a.ARTICULO)}</b> de <b>{escape(a.PROV_CORTO)}</b> frente a los <b>{n - 1}</b> artículos más de "
+         f"<b>{escape(a.PRODUCTO)}</b> ({n_prov} proveedores), comparando el precio por {a.BASE}.")
+
+    orden = pares.sort_values(["PRECIO_U", "ARTICULO"])
+    if len(orden) > 35:   # muchos artículos: los 15 más baratos y los que están alrededor del elegido
+        pos = list(orden.clave).index(sel)
+        ver = set(range(15)) | set(range(max(0, pos - 6), min(len(orden), pos + 7)))
+        orden = orden.iloc[sorted(ver)]
+    a_, b_ = st.columns([3, 2], gap="medium")
+    with a_:
+        with tarjeta(f"Precio por {a.BASE}: artículo elegido frente a los demás", "cmp_a_graf",
+                     "Arriba, el más barato. En color, el elegido; más claro, otros artículos del mismo proveedor.",
+                     extra=f"#{k} de {n}"):
+            et = unicas([f"#{int(x.lugar)}  {corto(x.ARTICULO, 26)} · {corto(x.PROV_CORTO, 16)}"
+                         for x in orden.itertuples()])
+            grafica_precios(et, list(orden.PRECIO_U), a.BASE,
+                            [T["acento"] if x.clave == sel else alfa(T["acento"], .35) if x.CVE == a.CVE
+                             else T["oro"] if x.lugar == 1 else alfa(T["verde"], .6) for x in orden.itertuples()],
+                            "g_cmp_a", mediana=mediana,
+                            hover=[f"{x.ARTICULO} · {x.PROV_CORTO}" for x in orden.itertuples()])
+            if len(orden) < n:
+                guia(f"Se muestran los 15 más baratos y los cercanos al elegido; la tabla tiene los {n}.")
+    with b_:
+        por_prov = pares.groupby("CVE").PRECIO_U.min().sort_values()
+        with tarjeta("Mejor precio de cada proveedor", "cmp_a_prov", f"Su artículo más barato por {a.BASE} en este "
+                     "producto.", extra=f"{n_prov} proveedores"):
+            barras_ranking(list(por_prov.values), [m.at[c, "nombre"] for c in por_prov.index],
+                           por_prov.rank(method="min"), "g_cmp_a_prov", T["verde"], f"$ por {a.BASE}",
+                           colores=[T["acento"] if c == a.CVE else alfa(T["verde"], .7) for c in por_prov.index])
+    st.write("")
+    with tarjeta("Todos los artículos comparables", "cmp_a_tabla", "La diferencia es contra el artículo elegido.",
+                 extra=f"{n} artículos"):
+        filas = [[lugar(x.lugar), (f"<b>{escape(x.ARTICULO)}</b>" if x.clave == sel else escape(x.ARTICULO))
+                  + f"<small>ART. {escape(x.ART_ID)}</small>", escape(x.PROV_CORTO), escape(x.MARCA),
+                  escape(x.PRESENTACION), dinero(x.COSTO_UNIT), precio_u(x.PRECIO_U, x.BASE),
+                  '<span class="chip">Elegido</span>' if x.clave == sel else chip_dif(x.dif)]
+                 for x in pares.sort_values(["PRECIO_U", "ARTICULO"]).itertuples()]
+        tabla(["Lugar", "Artículo", "Proveedor", "Marca", "Presentación", "Costo unitario", f"Precio por {a.BASE}",
+               "Diferencia"], filas, numericas=(5, 6, 7), alto=440)
+
+
+def comparador():
+    seccion("Comparar por producto o artículo", "Elige un producto para ver a todos los proveedores que lo surten, o un "
+            "artículo para compararlo con los del mismo producto de otros proveedores. Los precios se comparan por "
+            "kilo, litro o pieza.", "comparar")
+    modo = selector_metrica("cmp_modo", ["Producto", "Artículo"], default="Producto")
+    comparar_producto() if modo == "Producto" else comparar_articulo()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1537,34 +1863,26 @@ def vista_proveedor(yo):
             tabla(["Región", "Tus artículos", "Proveedores en la región"], filas, numericas=(1, 2))
 
     # 7. Artículos
-    seccion("Tus artículos", "Todos tus artículos vigentes; escribe para filtrar.", "articulos")
+    seccion("Tus artículos", "Todos tus artículos; escribe para filtrar o elige una sugerencia.", "articulos")
     with tarjeta("Listado de artículos", "a_tabla", extra=f"{r.art:,} artículos"):
-        with st.container(key="buscar_art"):
-            md(f'<span class="lupa">{svg("buscar", 16)}</span>')
-            q = st.text_input("Buscar", key="buscar_art_q", placeholder="Buscar artículo, producto, marca o clave…",
-                              label_visibility="collapsed")
         d = mio.sort_values(["PRODUCTO", "ARTICULO"])
-        if q:
-            palabras = norm_txt(q).split()
-            texto = (d.ARTICULO + " " + d.PRODUCTO + " " + d.MARCA + " " + d.ART_ID.astype(str)).map(norm_txt)
-            d = d[[all(p in t for p in palabras) for t in texto]]
         filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}</small>", escape(x.PRODUCTO), escape(x.MARCA),
                   escape(x.PRESENTACION),
                   "Nacional" if x.ALCANCE == "Nacional" else escape(" ".join(x.REGIONES)) or "–",
                   dinero(x.COSTO_UNIT)]
                  for x in d.itertuples()]
-        if filas:
-            tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario"], filas,
-                  numericas=(5,), alto=480)
-        else:
-            md('<div class="lb-mas">Sin coincidencias.</div>')
+        tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario"], filas,
+              numericas=(5,), alto=480, buscar="Buscar artículo, producto, marca, clave o región…",
+              busca_extra=[" ".join(f"{s_} {REGIONES[s_][0]}" for s_ in x.REGIONES) for x in d.itertuples()],
+              sugerencias=sugerencias_de(mio, {"Producto": "PRODUCTO", "Marca": "MARCA", "Artículo": "ARTICULO"}))
 
 
 # ──────────────────────────────────────────────────────────────
 # VISTA DEL PROGRAMA COMPLETO (administrador)
 # ──────────────────────────────────────────────────────────────
 def vista_programa():
-    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("proveedores", "Proveedores por rangos"),
+    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("comparar", "Comparar producto o artículo"),
+            ("proveedores", "Proveedores por rangos"),
             ("precios", "Rangos de precio"), ("regiones", "Cobertura")])
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
@@ -1613,6 +1931,7 @@ def vista_programa():
     ])
 
     ranking_programa()
+    comparador()
 
     seccion("Proveedores por rangos", "Cuántos proveedores hay en cada rango de surtido y de cobertura.", "proveedores")
     a, b = st.columns(2, gap="medium")
@@ -1671,3 +1990,4 @@ else:
 
 md('<div class="pie">Subgerencia de Abarrotes · Dirección Comercial · Alimentación para el Bienestar<br>'
    'Información de la hoja VIGENTES del Programa de Abasto Rural 2026.</div>')
+st.html(BUSCADOR_JS, unsafe_allow_javascript=True)
