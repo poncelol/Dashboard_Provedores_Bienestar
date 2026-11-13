@@ -143,6 +143,7 @@ ICONOS = {
     "lista": '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/>'
              '<path d="M8 6h13"/>',
     "buscar": '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    "flecha": '<path d="m6 9 6 6 6-6"/>',
     "ok": '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     "alerta": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/>'
               '<path d="M12 17h.01"/>',
@@ -470,6 +471,37 @@ div[class*="st-key-card_"] { padding: 0 20px 16px 20px !important; gap: .5rem; }
 
 /* KPIs */
 .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-bottom: 20px; }
+
+/* Rubros con listado (como el banner de app_mosaic): cada recuadro es un <details>; al hacer clic se despliega su
+   listado con un buscador propio que filtra solo los renglones de ese recuadro */
+.kpis.listados { align-items: start; }
+details.kpi-det { border: 1.5px solid var(--c) !important; }
+details.kpi-det > summary { list-style: none; cursor: pointer; border-radius: 12px; transition: box-shadow .15s; }
+details.kpi-det > summary::-webkit-details-marker { display: none; }
+details.kpi-det > summary:hover, details.kpi-det[open] > summary { box-shadow: inset 0 0 0 1px rgb(var(--acento-rgb) / .45); }
+details.kpi-det .flecha { color: var(--tenue); transition: transform .2s; margin-top: 2px; flex-shrink: 0; }
+details.kpi-det[open] .flecha { transform: rotate(180deg); color: var(--acento); }
+details.kpi-det .l, details.kpi-det .pista { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.kpi-det .pista { font-size: .82rem; color: var(--acento); font-weight: 500; margin-top: 4px; }
+.buscador { display: flex; align-items: center; gap: 8px; margin: 4px 18px 6px 18px; padding: 6px 10px;
+  background: var(--sutil); border: 1px solid var(--borde); border-radius: 8px; color: var(--tenue); }
+.buscador:focus-within { border-color: var(--acento); }
+.buscador input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: .9rem;
+  color: var(--texto); caret-color: var(--acento); font-family: inherit; }
+.buscador input::placeholder { color: var(--tenue); opacity: 1; }
+.buscador .cuenta { font-size: .76rem; white-space: nowrap; }
+details.kpi-det .nombres { list-style: none; margin: 0 18px 14px 18px; padding: 0 4px 0 0; max-height: 320px;
+  overflow-y: auto; border-top: 1px solid var(--linea); }
+details.kpi-det .nombres li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 7px 2px; border-bottom: 1px solid var(--linea); font-size: .86rem; color: var(--texto); }
+details.kpi-det .nombres li:last-child { border-bottom: none; }
+details.kpi-det .nombres li small { font-size: .74rem; color: var(--tenue); white-space: nowrap; text-align: right; }
+details.kpi-det .nombres li.vacio { color: var(--tenue); font-style: italic; justify-content: center; }
+details.kpi-det .nombres li[hidden] { display: none; }
+details.kpi-det .nombres::-webkit-scrollbar { width: 6px; }
+details.kpi-det .nombres::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 999px; }
+/* El script del buscador va en su propio st.html, sin contenido visible */
+.stElementContainer:has(> [data-testid="stHtml"] > script:only-child) { display: none; }
 .kpi { padding: 18px; display: flex; gap: 14px; align-items: flex-start; }
 .kpi > div:last-child { min-width: 0; flex: 1; }
 .kpi .ico { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: grid; place-items: center;
@@ -650,6 +682,62 @@ def tabla(encabezados, filas, numericas=(), alto=None):
                                   for i, v in enumerate(fila)) + "</tr>" for fila in filas)
     marco = f' scroll" style="max-height:{alto}px' if alto else ""
     md(f'<div class="tabla-wrap{marco}"><table class="tabla"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>')
+
+
+# Filtro de los listados mientras se escribe (sin acentos ni mayúsculas; cada palabra en cualquier orden).
+# st.markdown no ejecuta JavaScript: el contenido va con st.markdown y solo el script con st.html. El script escucha
+# en todo el documento y cada ejecución quita los escuchas de la anterior. Dentro no puede ir el signo «menor que»
+# (st.html descarta el bloque si lo encuentra), por eso las comparaciones se escriben al revés.
+BUSCADOR_JS = r"""<script>
+{
+  (window.__listadoEscuchas || []).forEach(([tipo, f]) => document.removeEventListener(tipo, f));
+  window.__listadoEscuchas = [];
+  const escuchar = (tipo, f) => { document.addEventListener(tipo, f); window.__listadoEscuchas.push([tipo, f]); };
+  const norm = t => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  escuchar("input", e => {
+    const caja = e.target.closest && e.target.closest(".buscador input");
+    if (!caja) return;
+    const marco = caja.closest(".buscable"), q = norm(caja.value), palabras = q.split(/\s+/).filter(Boolean);
+    let n = 0;
+    marco.querySelectorAll(".nombres li:not(.vacio)").forEach(li => {
+      const texto = norm(li.textContent + " " + (li.dataset.busca || ""));
+      const ok = palabras.every(p => texto.includes(p));
+      li.hidden = !ok;
+      n += ok;
+    });
+    marco.querySelector(".nombres .vacio").hidden = n > 0;
+    marco.querySelector(".buscador .cuenta").textContent = q ? n.toLocaleString("es-MX") + " de " + marco.dataset.total : "";
+  });
+  // Escape limpia el buscador del listado
+  escuchar("keydown", e => {
+    const caja = e.target.closest && e.target.closest(".buscador input");
+    if (caja && e.key === "Escape" && caja.value) {
+      caja.value = "";
+      caja.dispatchEvent(new Event("input", {bubbles: true}));
+    }
+  });
+}
+</script>"""
+
+
+def listados(recuadros):
+    """Recuadros de rubro que se despliegan con un clic para mostrar su listado, cada uno con su propio buscador.
+    recuadros: (título, ícono, valor, subtítulo, renglones, color); renglones: [(texto, detalle a la derecha)]."""
+    html = []
+    for titulo, icono, valor, sub, renglones, color in recuadros:
+        lis = "".join(f'<li><span>{escape(str(t))}</span>{f"<small>{escape(str(d))}</small>" if d else ""}</li>'
+                      for t, d in renglones)
+        html.append(
+            f'<details class="m-card kpi-det buscable" data-total="{len(renglones):,}" style="--c:{color};'
+            f'--ci:{P627 if color in CLAROS else "#fff"}"><summary><div class="kpi">'
+            f'<div class="ico">{svg(icono, 24)}</div><div><div class="l" title="{escape(titulo)}">{escape(titulo)}</div>'
+            f'<div class="v">{valor}</div><div class="s">{sub}</div><div class="pista">Clic para ver el listado</div></div>'
+            f'<span class="flecha">{svg("flecha", 18)}</span></div></summary>'
+            f'<label class="buscador">{svg("buscar", 16)}<input type="search" placeholder="Buscar en '
+            f'{escape(titulo.lower())}…" autocomplete="off"><span class="cuenta"></span></label>'
+            f'<ul class="nombres">{lis}<li class="vacio" hidden>Sin coincidencias.</li></ul></details>')
+    md(f'<div class="kpis listados">{"".join(html)}</div>')
+    st.html(BUSCADOR_JS, unsafe_allow_javascript=True)
 
 
 def kpi_html(etiqueta, valor, sub, icono, color):
@@ -1505,18 +1593,36 @@ def vista_programa():
             ("precios", "Rangos de precio"), ("regiones", "Cobertura"), ("vigencia", "Vigencias")])
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
-    md('<div class="kpis">' + "".join([
-        kpi_html("Proveedores", f"{N:,}", f"{int(m.nacional.sum())} con cobertura nacional", "proveedor", P626),
-        kpi_html("Productos", f"{unicos.PROD.nunique():,}", f"{n_comp} con dos o más proveedores", "producto", P7420),
-        kpi_html("Artículos", f"{unicos.ART_ID.nunique():,}", f"Mediana por proveedor: {m.art.median():.0f}",
-                 "articulo", P1255),
-        kpi_html("Marcas", f"{unicos.MARCA.nunique():,}", f"Mediana por proveedor: {m.marcas.median():.0f}", "marca",
-                 P7421),
-        kpi_html("Productos de un solo proveedor", f"{int((prov_por_prod == 1).sum()):,}",
-                 f"de {len(prov_por_prod):,} productos", "estrella", P627),
-        kpi_html("Costo unitario mediano", dinero(unicos.drop_duplicates("ART_ID").COSTO_UNIT.median()),
-                 "Por pieza, sin impuestos", "precio", P1255_60),
-    ]) + "</div>")
+
+    def plural(n, uno, varios):
+        return f"{n:,} {uno if n == 1 else varios}"
+
+    # Listado de cada rubro: (texto, detalle a la derecha), en orden alfabético
+    l_prov = [(x.nombre, f"CVE {c} · {plural(x.art, 'art.', 'art.')}") for c, x in m.sort_values("nombre").iterrows()]
+    l_prod = [(x.nombre, f"{plural(x.prov, 'proveedor', 'proveedores')} · {x.art:,} art.")
+              for _, x in prods_m.sort_values("nombre").iterrows()]
+    arts = unicos.groupby("ART_ID").agg(nombre=("ARTICULO", "first"), prov=("PROV_CORTO", "first"),
+                                        n=("CVE", "nunique")).sort_values("nombre")
+    l_art = [(x.nombre, f"ART. {a} · {x.prov}" + (f" y {x.n - 1} más" if x.n > 1 else ""))
+             for a, x in arts.iterrows()]
+    marcas_m = unicos.groupby("MARCA").agg(art=("ART_ID", "nunique"), prov=("CVE", "nunique")).sort_index()
+    l_marca = [(mc, f"{x.art:,} art. · {plural(x.prov, 'proveedor', 'proveedores')}") for mc, x in marcas_m.iterrows()]
+    solos = prods_m[prods_m.prov == 1]
+    duenos = unicos.groupby("PROD")["PROV_CORTO"].first()
+    l_solo = [(x.nombre, duenos[p]) for p, x in solos.sort_values("nombre").iterrows()]
+    l_reg = [(f"{s} · {REGIONES[s][0]}", f"{int(reg.at[s, 'prov'])} proveedores · {int(reg.at[s, 'art']):,} art.")
+             for s in REGIONES]
+    listados([
+        ("Proveedores", "proveedor", f"{N:,}", f"{int(m.nacional.sum())} con cobertura nacional", l_prov, P626),
+        ("Productos", "producto", f"{unicos.PROD.nunique():,}", f"{n_comp} con dos o más proveedores", l_prod, P7420),
+        ("Artículos", "articulo", f"{unicos.ART_ID.nunique():,}", f"Mediana por proveedor: {m.art.median():.0f}",
+         l_art, P1255),
+        ("Marcas", "marca", f"{unicos.MARCA.nunique():,}", f"Mediana por proveedor: {m.marcas.median():.0f}",
+         l_marca, P7421),
+        ("Productos de un solo proveedor", "estrella", f"{len(solos):,}", f"de {len(prov_por_prod):,} productos",
+         l_solo, P627),
+        ("Regiones", "mapa", f"{len(REGIONES)}", "Gerencias regionales", l_reg, P1255_60),
+    ])
     rango_moda = m.rango_art.value_counts()
     top5 = m.art.nlargest(5).sum() / m.art.sum()
     pronto = unicos[unicos.DIAS.between(0, 30)]
