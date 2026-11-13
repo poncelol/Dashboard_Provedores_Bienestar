@@ -139,8 +139,6 @@ ICONOS = {
                '1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
     "rangos": '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
     "calendario": '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
-    "hoja": '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'
-            '<path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
     "candado": '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     "lista": '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/>'
              '<path d="M8 6h13"/>',
@@ -182,10 +180,9 @@ RENOMBRAR = {
     "MARCA": "MARCA", "CAP": "CAP", "GRAM": "GRAM", "U/M": "UM",
     "COSTO DE ADQUISICIÓN 2026": "COSTO_CAJA",
     "COSTO UNITARIO DE ADQUISICIÓN 2026": "COSTO_UNIT",
-    "TIPO DE INVENTARIO": "INVENTARIO", "COBERTURA": "COBERTURA", "VIGENCIA": "VIGENCIA",
+    "COBERTURA": "COBERTURA", "VIGENCIA": "VIGENCIA",
 }
 NUMERICAS = ["CAP", "GRAM", "COSTO_CAJA", "COSTO_UNIT"]
-INVENTARIO_LABEL = {"PAR": "PAR", "OFERTA": "Oferta"}
 # Unidad de medida -> (factor a la unidad base, unidad base): así se comparan presentaciones distintas
 UNIDAD_BASE = {"GR": (0.001, "kg"), "KG": (1, "kg"), "ML": (0.001, "L"), "LT": (1, "L"), "PZ": (1, "pza")}
 
@@ -226,7 +223,7 @@ def cargar(contenido: bytes) -> pd.DataFrame:
         raise ValueError("faltan las columnas " + ", ".join(faltan))
 
     df = raw[raw["ART_ID"].notna()].copy()
-    for c in ["NEGOCIACION", "PROD", "MARCA", "UM", "INVENTARIO", "COBERTURA", "VIGENCIA", *NUMERICAS]:
+    for c in ["NEGOCIACION", "PROD", "MARCA", "UM", "COBERTURA", "VIGENCIA", *NUMERICAS]:
         if c not in df:
             df[c] = pd.NA
     for c in NUMERICAS:
@@ -243,9 +240,6 @@ def cargar(contenido: bytes) -> pd.DataFrame:
     df["PROV_CORTO"] = df["PROVEEDOR"].map(nombre_corto)
     df["PROD"] = df["PROD"].fillna(df["PRODUCTO"])
     df["PRODUCTO"] = df.groupby("PROD")["PRODUCTO"].transform(lambda s: s.mode().iat[0])
-
-    inv = clave_texto(df["INVENTARIO"]).str.upper()
-    df["INVENTARIO"] = inv.map(lambda x: INVENTARIO_LABEL.get(x, x.capitalize()), na_action="ignore").fillna("Sin dato")
 
     cob = df["COBERTURA"].astype(str).str.upper().str.replace(r"[^A-Z]+", " ", regex=True).str.strip()
     fichas = cob.where(~cob.isin(["", "NAN", "NA"]), "").str.split()
@@ -544,7 +538,7 @@ div[class*="st-key-card_"] { padding: 0 20px 16px 20px !important; gap: .5rem; }
 [data-testid="stButtonGroup"] button[data-selected="true"] {
   background: rgb(var(--acento-rgb) / .12) !important; border-color: var(--acento) !important; color: var(--acento) !important; }
 [data-testid="stButtonGroup"] button * { color: inherit !important; }
-.rk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.rk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .rk { padding: 14px; display: flex; flex-direction: column; gap: 6px; border-top: 4px solid var(--c) !important; }
 .rk .cab { display: flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 600; color: var(--tenue);
   text-transform: uppercase; letter-spacing: .04em; }
@@ -552,7 +546,19 @@ div[class*="st-key-card_"] { padding: 0 20px 16px 20px !important; gap: .5rem; }
 .rk .pos { font-size: 1.7rem; font-weight: 800; color: var(--texto); line-height: 1; }
 .rk .pos small { font-size: .8rem; font-weight: 600; color: var(--tenue); }
 .rk .val { font-size: .8rem; color: var(--texto3); }
-@media (max-width: 1100px) { .rk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .rk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Buscador de proveedores (vista de administrador) */
+.st-key-buscar_prov { position: relative; gap: 0 !important; }
+.st-key-buscar_prov .stElementContainer:has(.lupa) { position: absolute; left: 12px; top: 0; bottom: 0; z-index: 1;
+  display: flex; align-items: center; width: auto !important; pointer-events: none; }
+.st-key-buscar_prov .lupa { display: flex; color: var(--tenue); }
+.st-key-buscar_prov [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+.st-key-buscar_prov input { padding-left: 34px !important; }
+.tabla td .lugar { margin-left: 6px; height: 20px; min-width: 30px; font-size: .7rem; }
+.rubro { display: inline-block; font-size: .7rem; font-weight: 600; color: var(--acento); border-radius: 999px;
+  background: rgb(var(--acento-rgb) / .1); padding: 1px 8px; margin: 1px 4px 1px 0; white-space: nowrap; }
+.tabla small.coincide { color: var(--texto3); white-space: normal; max-width: 340px; }
+.tabla small.coincide mark { background: rgb(var(--acento-rgb) / .18); color: inherit; border-radius: 3px; padding: 0 1px; }
 @media (max-width: 640px) { .rk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .lb-mas { font-size: .84rem; color: var(--tenue); padding: 10px 0; display: flex; gap: 8px; align-items: center; }
@@ -730,11 +736,11 @@ def lugar(n):
     return f'<span class="lugar{f" l{n}" if n <= 3 else ""}">#{n}</span>'
 
 
-def barras_ranking(valores, nombres, lugares, clave, color, unidad, invertir=False):
-    """Barras horizontales con el lugar delante del nombre. invertir: la de menor valor queda arriba."""
+def barras_ranking(valores, nombres, lugares, clave, color, unidad, colores=None):
+    """Barras horizontales con el lugar delante del nombre. colores: uno por barra (si no, todas en `color`)."""
     etiquetas = unicas([f"#{int(l)}  {corto(n, 30)}" for l, n in zip(lugares, nombres)])
     fig = go.Figure(go.Bar(
-        x=list(valores), y=etiquetas, orientation="h", marker_color=color,
+        x=list(valores), y=etiquetas, orientation="h", marker_color=colores or color,
         text=[f"{v:,.0f}" for v in valores], textposition="outside", cliponaxis=False,
         textfont=dict(color=T["texto2"], size=11), customdata=list(nombres),
         hovertemplate="<b>%{customdata}</b><br>%{x:,} " + unidad + "<extra></extra>"))
@@ -745,26 +751,50 @@ def barras_ranking(valores, nombres, lugares, clave, color, unidad, invertir=Fal
     mostrar(fig, clave)
 
 
-def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10):
-    """Dos tarjetas lado a lado: los n con más y los n con menos. Los empates quedan en orden alfabético."""
+def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10, resaltar=None):
+    """Dos tarjetas lado a lado: los n con más y los n con menos. Los empates quedan en orden alfabético.
+    resaltar: clave que va en el color de acento si aparece en alguna de las dos listas."""
     serie = serie.loc[sorted(serie.index, key=lambda k: str(nombres.get(k, k)))]
     lugares = serie.rank(ascending=False, method="min")
     mas = serie.sort_values(ascending=False, kind="stable").head(n)
     menos = serie.sort_values(ascending=True, kind="stable").head(n)
     a, b = st.columns(2, gap="medium")
-    with a:
-        with tarjeta(f"{quien} con más {unidad}", f"{clave}_mas", f"Los {len(mas)} primeros lugares.",
-                     extra=f"Máximo: {serie.max():,.0f}"):
-            barras_ranking(mas.values, [nombres.get(k, k) for k in mas.index], lugares[mas.index], f"g_{clave}_mas",
-                           T["verde"], unidad)
-    with b:
-        with tarjeta(f"{quien} con menos {unidad}", f"{clave}_menos", f"Los {len(menos)} últimos lugares.",
-                     extra=f"Mínimo: {serie.min():,.0f}"):
-            barras_ranking(menos.values, [nombres.get(k, k) for k in menos.index], lugares[menos.index],
-                           f"g_{clave}_menos", T["oro"], unidad)
+    for col_, lista, titulo, sufijo, color, sub, extra in [
+            (a, mas, f"{quien} con más {unidad}", "mas", T["verde"], f"Los {len(mas)} primeros lugares.",
+             f"Máximo: {serie.max():,.0f}"),
+            (b, menos, f"{quien} con menos {unidad}", "menos", T["oro"], f"Los {len(menos)} últimos lugares.",
+             f"Mínimo: {serie.min():,.0f}")]:
+        with col_, tarjeta(titulo, f"{clave}_{sufijo}", sub, extra=extra):
+            barras_ranking(lista.values, [nombres.get(k, k) for k in lista.index], lugares[lista.index],
+                           f"g_{clave}_{sufijo}", color, unidad,
+                           colores=[T["acento"] if k == resaltar else color for k in lista.index])
             empate = int((serie == serie.min()).sum())
-            if empate > n:
+            if sufijo == "menos" and empate > n:
                 guia(f"<b>{empate}</b> tienen {serie.min():,.0f} {unidad}; aquí se muestran {n} en orden alfabético.")
+
+
+def grafica_todos(col, unidad, clave, resaltar=None, con_nombres=False, etiqueta="Tú"):
+    """Una barra por proveedor, de más a menos, con la mediana. El proveedor `resaltar` va en color y con su lugar.
+    Sin nombres (vista de un proveedor) el cursor solo muestra el lugar y la cifra."""
+    s = m[col].sort_values(ascending=False, kind="stable")
+    rk = s.rank(ascending=False, method="min")
+    quien = [f"<b>{escape(m.at[c, 'nombre'])}</b><br>" if con_nombres else "" for c in s.index]
+    fig = go.Figure(go.Bar(
+        x=list(range(1, N + 1)), y=s.values, customdata=list(zip(rk.values, quien)),
+        marker_color=[T["acento"] if c == resaltar else alfa(T["verde"], .45) for c in s.index],
+        hovertemplate="%{customdata[1]}Lugar #%{customdata[0]:.0f} · %{y:,} " + unidad + "<extra></extra>"))
+    fig.add_hline(y=s.median(), line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana: {s.median():,.0f}",
+                  annotation_position="top right", annotation_font_color=T["texto3"])
+    if resaltar in s.index:
+        fig.add_annotation(x=list(s.index).index(resaltar) + 1, y=s[resaltar],
+                           text=f"<b>{escape(etiqueta)} · #{int(rk[resaltar])}</b>", showarrow=True, arrowhead=0,
+                           ax=0, ay=-34, arrowcolor=T["acento"], font=dict(color=T["acento"], size=13))
+    estilo(fig, 340)
+    fig.update_layout(bargap=.15, margin=dict(t=30, b=8))
+    fig.update_xaxes(tickvals=[1, N], ticktext=["Más", "Menos"], gridcolor="rgba(0,0,0,0)",
+                     tickfont=dict(color=T["texto2"], size=12))
+    fig.update_yaxes(range=[0, max(s.max(), 1) * 1.2])
+    mostrar(fig, clave)
 
 
 def posicion_rango(precio, minimo, maximo):
@@ -919,11 +949,23 @@ precios["posicion"] = [posicion_rango(p, a, b) for p, a, b in zip(precios.precio
 # Indicadores por proveedor
 m = unicos.groupby("CVE").agg(nombre=("PROV_CORTO", "first"), razon=("PROVEEDOR", "first"),
                               art=("ART_ID", "nunique"), prod=("PROD", "nunique"), marcas=("MARCA", "nunique"),
-                              hojas=("NEGOCIACION", "nunique"))
-m["regiones"] = unicos.groupby("CVE")["REGIONES"].agg(lambda s: len({r for t in s for r in t}))
+                              costo=("COSTO_UNIT", "median"))
+_regs = unicos.groupby("CVE")["REGIONES"].agg(lambda s: sorted({r for t in s for r in t}, key=list(REGIONES).index))
+m["regiones"] = _regs.map(len)
 m["nacional"] = unicos.groupby("CVE")["ALCANCE"].agg(lambda s: (s == "Nacional").any())
-ofertas = unicos[(unicos["INVENTARIO"] == "Oferta") & ~(unicos["VIG_FECHA"] < hoy)]
-m["ofertas"] = ofertas.groupby("CVE")["ART_ID"].nunique().reindex(m.index, fill_value=0)
+
+# Texto para el buscador, separado por rubro: así se puede buscar a cualquier proveedor por lo que sea
+RUBROS = ["Proveedor", "Producto", "Marca", "Región", "Artículo"]
+_unir = lambda s: " | ".join(sorted(set(s)))   # noqa: E731
+BUSCA = pd.DataFrame({
+    "Proveedor": m.nombre + " | " + m.razon + " | " + m.index.to_series(),
+    "Producto": unicos.groupby("CVE")["PRODUCTO"].agg(_unir),
+    "Marca": unicos.groupby("CVE")["MARCA"].agg(_unir),
+    "Región": _regs.map(lambda rs: " | ".join(f"{s} {REGIONES[s][0]}" for s in rs)
+                        + (" | Nacional" if len(rs) == len(REGIONES) else "")),
+    "Artículo": unicos.groupby("CVE")["ARTICULO"].agg(_unir),
+}).reindex(m.index).fillna("")
+BUSCA_NORM = BUSCA.map(lambda t: unicodedata.normalize("NFD", t).encode("ascii", "ignore").decode().lower())
 m["rango_art"] = en_rangos(m["art"], RANGOS_ART).astype(str)
 m["rango_reg"] = en_rangos(m["regiones"], RANGOS_REG).astype(str)
 N = len(m)
@@ -933,8 +975,6 @@ METRICAS = {
     "Productos": ("prod", "productos", "producto", P7420),
     "Marcas": ("marcas", "marcas", "marca", P1255),
     "Regiones": ("regiones", "regiones", "mapa", P7421),
-    "Ofertas vigentes": ("ofertas", "ofertas", "estrella", P627),
-    "Hojas de negociación": ("hojas", "hojas", "hoja", P1255_60),
 }
 for _col, *_ in METRICAS.values():
     m[f"rk_{_col}"] = m[_col].rank(ascending=False, method="min")
@@ -1067,43 +1107,32 @@ def selector_metrica(clave, opciones=None, default="Artículos"):
                                 label_visibility="collapsed") or default
 
 
-def ranking_proveedor(yo):
-    """Lugar del proveedor en cada indicador; los demás proveedores aparecen sin nombre."""
-    r = m.loc[yo]
-    mio = unicos[unicos.CVE == yo]
-    seccion("Ranking y comparativas", f"Tu lugar entre los {N} proveedores en cada indicador (#1 = el que tiene más). "
-            "Los demás proveedores no se identifican.", "ranking")
+def tarjetas_lugar(cve):
+    """Lugar del proveedor en cada indicador, en tarjetas."""
+    r = m.loc[cve]
     md('<div class="rk-grid">' + "".join(
         f'<div class="m-card rk" style="--c:{color}"><div class="cab">{svg(ico, 14)}{et}</div>'
         f'<div class="pos">#{int(r[f"rk_{col}"])} <small>de {N}</small></div>'
         f'<div class="val">{r[col]:,} {unidad}</div></div>'
         for et, (col, unidad, ico, color) in METRICAS.items()) + "</div>")
 
+
+def ranking_proveedor(yo):
+    """Lugar del proveedor en cada indicador; los demás proveedores aparecen sin nombre."""
+    r = m.loc[yo]
+    mio = unicos[unicos.CVE == yo]
+    seccion("Ranking y comparativas", f"Tu lugar entre los {N} proveedores en cada indicador (#1 = el que tiene más). "
+            "Los demás proveedores no se identifican.", "ranking")
+    tarjetas_lugar(yo)
+
     met = selector_metrica("met_prov")
     col, unidad, _, _ = METRICAS[met]
-    k = int(r[f"rk_{col}"])
     a, b = st.columns([3, 2], gap="medium")
     with a:
         with tarjeta(f"Todos los proveedores por {met.lower()}", "rk_todos",
-                     "Cada barra es un proveedor, de más a menos; en color, tú.", extra=f"Lugar #{k} de {N}"):
-            s = m[col].sort_values(ascending=False, kind="stable")
-            rk = s.rank(ascending=False, method="min")
-            i = list(s.index).index(yo) + 1
-            fig = go.Figure(go.Bar(
-                x=list(range(1, N + 1)), y=s.values, customdata=rk.values,
-                marker_color=[T["acento"] if c == yo else alfa(T["verde"], .45) for c in s.index],
-                hovertemplate="Lugar #%{customdata:.0f} · %{y:,} " + unidad + "<extra></extra>"))
-            fig.add_hline(y=s.median(), line_dash="dot", line_color=T["tenue"],
-                          annotation_text=f"Mediana: {s.median():,.0f}", annotation_position="top right",
-                          annotation_font_color=T["texto3"])
-            fig.add_annotation(x=i, y=r[col], text=f"<b>Tú · #{k}</b>", showarrow=True, arrowhead=0, ax=0, ay=-34,
-                               arrowcolor=T["acento"], font=dict(color=T["acento"], size=13))
-            estilo(fig, 340)
-            fig.update_layout(bargap=.15, margin=dict(t=30, b=8))
-            fig.update_xaxes(tickvals=[1, N], ticktext=["Más", "Menos"], gridcolor="rgba(0,0,0,0)",
-                             tickfont=dict(color=T["texto2"], size=12))
-            fig.update_yaxes(range=[0, s.max() * 1.2])
-            mostrar(fig, "g_rk_todos")
+                     "Cada barra es un proveedor, de más a menos; en color, tú.",
+                     extra=f"Lugar #{int(r[f'rk_{col}'])} de {N}"):
+            grafica_todos(col, unidad, "g_rk_todos", resaltar=yo)
             mas_n, menos_n = int((m[col] > r[col]).sum()), int((m[col] < r[col]).sum())
             iguales = int((m[col] == r[col]).sum()) - 1
             guia(f"Tienes <b>{r[col]:,} {unidad}</b>: <b>{mas_n}</b> proveedores tienen más y <b>{menos_n}</b> tienen "
@@ -1121,7 +1150,7 @@ def ranking_proveedor(yo):
                 fig.add_trace(go.Bar(y=ets, x=pct, name=nombre, orientation="h", marker_color=color,
                                      customdata=[f"{v:,.1f}".removesuffix(".0") for v in vals],
                                      hovertemplate="<b>%{y}</b><br>" + nombre + ": %{customdata}<extra></extra>"))
-            estilo(fig, 400, leyenda=True)
+            estilo(fig, 360, leyenda=True)
             fig.update_layout(barmode="group", bargap=.25, bargroupgap=.05, margin=dict(t=4, b=40),
                               legend=dict(traceorder="reversed", y=-0.08))
             fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(color=T["texto2"]))
@@ -1147,13 +1176,108 @@ def ranking_proveedor(yo):
         mostrar(fig, "g_rk_prods")
 
 
+def buscar_proveedores(q: str, rubro: str) -> pd.DataFrame:
+    """Proveedores cuyo texto contiene todas las palabras escritas (sin acentos ni mayúsculas, en cualquier orden),
+    en un rubro o en todos. Devuelve, por proveedor, los elementos de cada rubro donde coincidió."""
+    palabras = norm_txt(q).split()
+    rubros = RUBROS if rubro == "Todo" else [rubro]
+    if not palabras:
+        return pd.DataFrame({"coincide": [[] for _ in m.index]}, index=m.index)
+    ok = pd.Series(True, index=m.index)
+    for p in palabras:   # cada palabra debe aparecer en alguno de los rubros elegidos
+        ok &= pd.concat([BUSCA_NORM[r].str.contains(p, regex=False) for r in rubros], axis=1).any(axis=1)
+    salida = []
+    for cve in m.index[ok]:
+        hallado = []
+        for r in rubros:
+            partes = [t for t, tn in zip(BUSCA.at[cve, r].split(" | "), BUSCA_NORM.at[cve, r].split(" | "))
+                      if any(p in tn for p in palabras)]
+            if partes:
+                hallado.append((r, partes))
+        salida.append((cve, hallado))
+    return pd.DataFrame({"coincide": [h for _, h in salida]}, index=[c for c, _ in salida])
+
+
+def resaltar_palabras(texto, palabras):
+    """Envuelve en <mark> las palabras buscadas, respetando acentos y mayúsculas del original."""
+    base = norm_txt(texto)
+    marcas = [False] * len(texto)
+    if len(base) == len(texto):   # solo si quitar acentos no cambia el largo del texto
+        for p in palabras:
+            i = base.find(p)
+            while i >= 0:
+                for k in range(i, i + len(p)):
+                    marcas[k] = True
+                i = base.find(p, i + 1)
+    salida, abierto = "", False
+    for ch, mk in zip(texto, marcas):
+        if mk != abierto:
+            salida += "<mark>" if mk else "</mark>"
+            abierto = mk
+        salida += escape(ch)
+    return salida + ("</mark>" if abierto else "")
+
+
 def ranking_programa():
-    """Quién tiene más y quién tiene menos: proveedores, productos y regiones."""
-    seccion("Ranking y comparativas", "Quién tiene más y quién tiene menos: proveedores, productos y regiones. "
-            "Elige el indicador con los botones.", "ranking")
+    """Buscador de proveedores y quién tiene más y quién tiene menos: proveedores, productos y regiones."""
+    seccion("Ranking y comparativas", "Busca a cualquier proveedor por nombre, CVE, producto, marca, región o artículo "
+            "y ve su lugar en cada indicador; abajo, quién tiene más y quién tiene menos.", "ranking")
+
+    q = st.session_state.get("q_prov", "")
+    rubro = st.session_state.get("rubro") or "Todo"
+    res = buscar_proveedores(q, rubro)
+    with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato y elige en qué rubro buscar. La tabla muestra el "
+                 "lugar de cada proveedor en cada indicador.", extra=f"{len(res):,} de {N} proveedores"):
+        c1, c2 = st.columns([3, 2], vertical_alignment="center")
+        with c1, st.container(key="buscar_prov"):
+            md(f'<span class="lupa">{svg("buscar", 16)}</span>')
+            st.text_input("Buscar", key="q_prov", label_visibility="collapsed",
+                          placeholder="Nombre, CVE, producto, marca, región o artículo…")
+        with c2:
+            st.segmented_control("Buscar en", ["Todo", *RUBROS], default="Todo", key="rubro",
+                                 label_visibility="collapsed")
+        palabras = norm_txt(q).split()
+        orden = m.loc[res.index].sort_values(["rk_art", "nombre"])
+        filas = []
+        for cve, x in orden.iterrows():
+            celdas = [escape(x.nombre) + f"<small>CVE {escape(cve)}</small>"]
+            celdas += [f"{x[c]:,}{lugar(x[f'rk_{c}'])}" for c, *_ in METRICAS.values()]
+            if palabras:
+                txt = []
+                for r, partes in res.at[cve, "coincide"]:
+                    muestra = ", ".join(resaltar_palabras(p, palabras) for p in partes[:3])
+                    txt.append(f'<span class="rubro">{r}</span>{muestra}'
+                               + (f" y {len(partes) - 3} más" if len(partes) > 3 else ""))
+                celdas.append(f'<small class="coincide">{"<br>".join(txt)}</small>')
+            filas.append(celdas)
+        if filas:
+            tabla(["Proveedor", *list(METRICAS)] + (["Coincide en"] if palabras else []), filas,
+                  numericas=(1, 2, 3, 4), alto=420)
+        else:
+            md('<div class="lb-mas">Ningún proveedor coincide. Prueba con otra palabra o busca en «Todo».</div>')
+
+        sel = None
+        if palabras and len(res):
+            c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
+            sel = c1.selectbox("Resaltar en las gráficas", list(orden.index), key="resaltar",
+                               format_func=lambda c: f"{m.at[c, 'nombre']} · CVE {c}")
+            c2.button("Abrir su tablero", icon=":material/open_in_new:", key="abrir", width="stretch",
+                      on_click=lambda c=sel: st.session_state.update(ver=c))
+
+    st.write("")
+    if sel:
+        md(f'<div class="guia">{svg("proveedor", 16)}<span>Lugar de <b>{escape(m.at[sel, "nombre"])}</b> en cada '
+           f'indicador; en las gráficas aparece en color.</span></div>')
+        tarjetas_lugar(sel)
     met = selector_metrica("met_prog")
     col, unidad, _, _ = METRICAS[met]
-    mas_y_menos(m[col], m["nombre"].to_dict(), "rkp", "Proveedores", unidad)
+    with tarjeta(f"Todos los proveedores por {met.lower()}", "rk_todos_p",
+                 "Cada barra es un proveedor, de más a menos; pasa el cursor para ver su nombre.",
+                 extra=f"{m.at[sel, 'nombre']}: #{int(m.at[sel, f'rk_{col}'])}" if sel else f"{N} proveedores"):
+        grafica_todos(col, unidad, "g_rk_todos_p", resaltar=sel, con_nombres=True,
+                      etiqueta=corto(m.at[sel, "nombre"], 24) if sel else "")
+    st.write("")
+    mas_y_menos(m[col], m["nombre"].to_dict(), "rkp", "Proveedores", unidad, resaltar=sel)
 
     st.write("")
     crit = selector_metrica("crit_prod", ["Proveedores", "Artículos", "Marcas"], default="Proveedores")
@@ -1163,16 +1287,21 @@ def ranking_programa():
     st.write("")
     a, b = st.columns(2, gap="medium")
     with a:
-        orden = reg.sort_values(["prov", "art"], ascending=False)
+        orden_r = reg.sort_values(["prov", "art"], ascending=False)
+        regs_sel = set(_regs[sel]) if sel else set()
         with tarjeta("Regiones de más a menos proveedores", "rk_reg", "Los nacionales cuentan en todas las regiones.",
                      extra=f"{len(REGIONES)} regiones"):
-            barras_ranking(orden.prov.values, [f"{s} · {REGIONES[s][0]}" for s in orden.index],
-                           orden.prov.rank(ascending=False, method="min"), "g_rk_reg", T["acento"], "proveedores")
+            barras_ranking(orden_r.prov.values, [f"{s} · {REGIONES[s][0]}" for s in orden_r.index],
+                           orden_r.prov.rank(ascending=False, method="min"), "g_rk_reg", T["acento"], "proveedores",
+                           colores=[T["acento"] if not sel or s in regs_sel else alfa(T["acento"], .3)
+                                    for s in orden_r.index])
+            if sel:
+                guia(f"En color fuerte, las regiones a las que llega <b>{escape(m.at[sel, 'nombre'])}</b>.")
     with b:
         n_nal, n_reg = int(m.nacional.sum()), int((~m.nacional).sum())
         with tarjeta("Nacionales frente a regionales", "rk_alc", "Promedio por proveedor en cada grupo.",
                      extra=[f"{n_nal} nacionales", f"{n_reg} regionales"]):
-            ets = ["Artículos", "Productos", "Marcas", "Ofertas vigentes", "Hojas de negociación"]
+            ets = ["Artículos", "Productos", "Marcas"]
             fig = go.Figure()
             for nombre, filtro, color in [("Nacionales", m.nacional, T["verde"]), ("Regionales", ~m.nacional, T["oro"])]:
                 vals = [m.loc[filtro, METRICAS[e][0]].mean() for e in ets]
@@ -1200,7 +1329,6 @@ def vista_proveedor(yo):
     md(f'<div class="m-card ficha"><div class="ico">{svg("proveedor", 28)}</div><div><div class="t">Tablero de</div>'
        f'<b>{escape(r["nombre"])}</b><span>{escape(r.razon)} · CVE {escape(yo)}</span></div><div class="etq">'
        f'<span class="etq-c">{svg("mapa", 14)}{"Cobertura nacional" if r.nacional else "Cobertura regional"}</span>'
-       f'<span class="etq-c">{svg("hoja", 14)}{r.hojas:,} {"hoja" if r.hojas == 1 else "hojas"} de negociación</span>'
        f'</div></div>')
     indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("surtido", "Tu surtido"),
             ("precios", "Tu precio en el mercado"), ("programa", "Proveedores por rangos"), ("regiones", "Cobertura"),
@@ -1215,7 +1343,7 @@ def vista_proveedor(yo):
         kpi_html("Marcas", f"{r.marcas:,}", f"Mediana del programa: {med.marcas:.0f}", "marca", P1255),
         kpi_html("Regiones", f"{r.regiones} de {len(REGIONES)}",
                  "Llegas a todo el país" if r.nacional else "Gerencias regionales que cubres", "mapa", P7421),
-        kpi_html("Ofertas vigentes", f"{r.ofertas:,}", "Artículos en oferta con vigencia activa", "estrella", P627),
+        kpi_html("Costo unitario mediano", dinero(r.costo), f"Mediana del programa: {dinero(med.costo)}", "precio", P627),
         kpi_html("Productos con más proveedores", f"{len(mios_p):,}",
                  f"de tus {r['prod']:,} productos tienen rango de precio", "balanza", P1255_60),
     ]) + "</div>")
@@ -1261,10 +1389,6 @@ def vista_proveedor(yo):
                      "Costo de adquisición por pieza, sin impuestos.", extra=f"{r.art:,} artículos"):
             c = conteo_rangos(mio.COSTO_UNIT, RANGOS_COSTO)
             barras_rangos(c, "g_s_costo", "artículos", resaltar=c.idxmax(), nota="La mayoría")
-            inv = mio.INVENTARIO.value_counts()
-            md('<div class="leyenda">' + "".join(
-                f'<span><i style="background:{T["acento"] if k == "Oferta" else T["verde"]}"></i>{escape(k)}: '
-                f'<b>{v:,}</b></span>' for k, v in inv.items()) + "</div>")
 
     # 3. Precio dentro del rango del mercado
     seccion("Tu precio dentro del rango del mercado",
@@ -1335,17 +1459,16 @@ def vista_proveedor(yo):
         d = mio.sort_values(["PRODUCTO", "ARTICULO"])
         if q:
             palabras = norm_txt(q).split()
-            texto = (d.ARTICULO + " " + d.PRODUCTO + " " + d.MARCA + " " + d.ART_ID.astype(str) + " " + d.INVENTARIO) \
-                .map(norm_txt)
+            texto = (d.ARTICULO + " " + d.PRODUCTO + " " + d.MARCA + " " + d.ART_ID.astype(str)).map(norm_txt)
             d = d[[all(p in t for p in palabras) for t in texto]]
         filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}</small>", escape(x.PRODUCTO), escape(x.MARCA),
-                  escape(x.PRESENTACION), escape(x.INVENTARIO),
+                  escape(x.PRESENTACION),
                   "Nacional" if x.ALCANCE == "Nacional" else escape(" ".join(x.REGIONES)) or "–",
                   dinero(x.COSTO_UNIT), "–" if pd.isna(x.VIG_FECHA) else f"{x.VIG_FECHA:%d/%m/%Y}"]
                  for x in d.itertuples()]
         if filas:
-            tabla(["Artículo", "Producto", "Marca", "Presentación", "Inventario", "Cobertura", "Costo unitario",
-                   "Vigencia"], filas, numericas=(6, 7), alto=480)
+            tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario", "Vigencia"], filas,
+                  numericas=(5, 6), alto=480)
         else:
             md('<div class="lb-mas">Sin coincidencias.</div>')
 
@@ -1389,9 +1512,10 @@ def vista_programa():
                  "articulo", P1255),
         kpi_html("Marcas", f"{unicos.MARCA.nunique():,}", f"Mediana por proveedor: {m.marcas.median():.0f}", "marca",
                  P7421),
-        kpi_html("Ofertas vigentes", f"{ofertas.ART_ID.nunique():,}", f"de {int((m.ofertas > 0).sum())} proveedores",
-                 "estrella", P627),
-        kpi_html("Hojas de negociación", f"{unicos.NEGOCIACION.nunique():,}", "Negociaciones vigentes", "hoja", P1255_60),
+        kpi_html("Productos de un solo proveedor", f"{int((prov_por_prod == 1).sum()):,}",
+                 f"de {len(prov_por_prod):,} productos", "estrella", P627),
+        kpi_html("Costo unitario mediano", dinero(unicos.drop_duplicates("ART_ID").COSTO_UNIT.median()),
+                 "Por pieza, sin impuestos", "precio", P1255_60),
     ]) + "</div>")
     rango_moda = m.rango_art.value_counts()
     top5 = m.art.nlargest(5).sum() / m.art.sum()
@@ -1403,8 +1527,8 @@ def vista_programa():
         (P1255, "articulo", f"Los 5 proveedores con más artículos reúnen el <b>{top5:.0%}</b> del surtido."),
         (P7421, "mapa", f"<b>{int(m.nacional.sum())}</b> proveedores tienen cobertura nacional y "
                         f"<b>{int((~m.nacional).sum())}</b> son regionales."),
-        (P627, "estrella", f"<b>{ofertas.ART_ID.nunique():,}</b> artículos en oferta vigente de "
-                           f"<b>{int((m.ofertas > 0).sum())}</b> proveedores."),
+        (P627, "estrella", f"<b>{escape(prods_m.at[prods_m.prov.idxmax(), 'nombre'])}</b> "
+                           f"es el producto con más proveedores: <b>{prods_m.prov.max()}</b> lo surten."),
         (P1255_60, "calendario", f"<b>{len(pronto):,}</b> artículos vencen en los próximos 30 días."),
     ])
 
@@ -1419,15 +1543,6 @@ def vista_programa():
         with tarjeta("Proveedores por rango de cobertura", "pa_reg", extra=f"{N} proveedores"):
             c = conteo_rangos(m.regiones, RANGOS_REG)
             barras_rangos(c[c > 0], "g_pa_reg", "proveedores")
-    st.write("")
-    with tarjeta("Proveedores", "pa_tabla", "Abre el tablero de cualquiera con el selector de arriba.",
-                 extra=f"{N} proveedores"):
-        filas = [[lugar(x.rk_art), escape(x.nombre) + f"<small>CVE {escape(c)}</small>", f"{x.art:,}",
-                  escape(x.rango_art), f"{x['prod']:,}", f"{x.marcas:,}",
-                  "Nacional" if x.nacional else f"{x.regiones} de {len(REGIONES)}", f"{x.ofertas:,}"]
-                 for c, x in m.sort_values(["rk_art", "nombre"]).iterrows()]
-        tabla(["Lugar", "Proveedor", "Artículos", "Rango", "Productos", "Marcas", "Cobertura", "Ofertas"], filas,
-              numericas=(2, 4, 5, 7), alto=460)
 
     seccion("Rangos de precio por producto", "Precio por kilo, litro o pieza de los productos que surten dos o más "
             "proveedores: del más bajo al más alto.", "precios")
