@@ -492,6 +492,8 @@ details.kpi-det .pista { font-size: .82rem; color: var(--acento); font-weight: 5
 .buscador input::-webkit-search-cancel-button { cursor: pointer; }
 .buscador .cuenta { font-size: .78rem; white-space: nowrap; }
 .tabla-busca .buscador { margin: 0 0 10px 0; }
+/* Espacio bajo la tabla: el bloque de Streamlit trae margen negativo y lo que sigue se le encimaba */
+.tabla-busca { padding-bottom: 18px; }
 .tabla tr.vacio td { color: var(--tenue); font-style: italic; text-align: center; }
 .tabla tr[hidden] { display: none; }
 .buscador .sugerencias { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; list-style: none;
@@ -1050,9 +1052,54 @@ def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10, res
                 guia(f"<b>{empate}</b> tienen {serie.min():,.0f} {unidad}; aquí se muestran {n} en orden alfabético.")
 
 
+def titulo_todos(met):
+    """Título y explicación de la tarjeta de la gráfica de todos los proveedores."""
+    if met == "Regiones":
+        return ("Proveedores según cuántas regiones cubren",
+                "Cada barra cuenta cuántos proveedores llegan a ese número de gerencias regionales (12 = todo el país).")
+    return f"Todos los proveedores por {met.lower()}", "Cada barra es un proveedor, de más a menos."
+
+
+def grafica_regiones(clave, resaltar=None, con_nombres=False, etiqueta="Tú"):
+    """Columnas de 1 a 12 regiones con cuántos proveedores hay en cada una; la del proveedor `resaltar` en color."""
+    total_reg = len(REGIONES)
+    cuenta = m.regiones.value_counts().reindex(range(0, total_reg + 1), fill_value=0)
+    if not cuenta[0]:
+        cuenta = cuenta.drop(0)
+    xs = [("Sin dato" if k == 0 else f"{k}" if k < total_reg else f"{k}<br>(todo el país)") for k in cuenta.index]
+    mio = m.at[resaltar, "regiones"] if resaltar in m.index else None
+    if con_nombres:   # vista del administrador: el cursor muestra quiénes están en esa columna
+        quien = []
+        for k in cuenta.index:
+            nombres = sorted(m.loc[m.regiones == k, "nombre"])
+            quien.append("<br>".join(nombres[:8]) + (f"<br>y {len(nombres) - 8} más" if len(nombres) > 8 else ""))
+    else:
+        quien = [""] * len(cuenta)
+    fig = go.Figure(go.Bar(
+        x=xs, y=cuenta.values, customdata=quien,
+        marker_color=[T["acento"] if k == mio else alfa(T["verde"], .55 if mio is not None else .85) for k in cuenta.index],
+        text=[f"{v}" if v else "" for v in cuenta.values], textposition="outside", cliponaxis=False,
+        textfont=dict(color=T["texto2"], size=12),
+        hovertemplate="<b>%{y} proveedores</b> cubren %{x} regiones<br>%{customdata}<extra></extra>"))
+    if mio is not None:
+        # Con etiquetas que parecen números ("2"), plotly toma x como posición: se da la posición de la columna
+        fig.add_annotation(x=list(cuenta.index).index(mio), y=cuenta[mio], yshift=34, showarrow=False,
+                           text=f"<b>{escape(etiqueta)}</b>", font=dict(color=T["acento"], size=13))
+    estilo(fig, 340)
+    fig.update_layout(bargap=.2, margin=dict(t=30, b=8))
+    fig.update_xaxes(type="category", title=dict(text="Regiones que cubre", font=dict(color=T["texto3"], size=12)),
+                     tickfont=dict(color=T["texto2"], size=12), gridcolor="rgba(0,0,0,0)")
+    fig.update_yaxes(visible=False, range=[0, cuenta.max() * 1.3])
+    mostrar(fig, clave)
+
+
 def grafica_todos(col, unidad, clave, resaltar=None, con_nombres=False, etiqueta="Tú"):
     """Una barra por proveedor, de más a menos, con la mediana. El proveedor `resaltar` va en color y con su lugar.
-    Sin nombres (vista de un proveedor) el cursor solo muestra el lugar y la cifra."""
+    Sin nombres (vista de un proveedor) el cursor solo muestra el lugar y la cifra.
+    Regiones va de 1 a 12 y casi todos empatan, así que ahí se dibuja cuántos proveedores cubren 1, 2… 12 regiones."""
+    if col == "regiones":
+        grafica_regiones(clave, resaltar, con_nombres, etiqueta)
+        return
     s = m[col].sort_values(ascending=False, kind="stable")
     rk = s.rank(ascending=False, method="min")
     quien = [f"<b>{escape(m.at[c, 'nombre'])}</b><br>" if con_nombres else "" for c in s.index]
@@ -1404,14 +1451,19 @@ def ranking_proveedor(yo):
     col, unidad, _, _ = METRICAS[met]
     a, b = st.columns([3, 2], gap="medium")
     with a:
-        with tarjeta(f"Todos los proveedores por {met.lower()}", "rk_todos",
-                     "Cada barra es un proveedor, de más a menos; en color, tú.",
-                     extra=f"Lugar #{int(r[f'rk_{col}'])} de {N}"):
+        titulo, sub = titulo_todos(met)
+        with tarjeta(titulo, "rk_todos", sub + " En color, tú.", extra=f"Lugar #{int(r[f'rk_{col}'])} de {N}"):
             grafica_todos(col, unidad, "g_rk_todos", resaltar=yo)
             mas_n, menos_n = int((m[col] > r[col]).sum()), int((m[col] < r[col]).sum())
             iguales = int((m[col] == r[col]).sum()) - 1
-            guia(f"Tienes <b>{r[col]:,} {unidad}</b>: <b>{mas_n}</b> proveedores tienen más y <b>{menos_n}</b> tienen "
-                 f"menos" + (f"; <b>{iguales}</b> tienen lo mismo que tú." if iguales else "."))
+            if col == "regiones":
+                guia(f"Cubres <b>{r[col]} de {len(REGIONES)}</b> regiones"
+                     + (f", igual que otros <b>{iguales}</b> proveedores" if iguales else "")
+                     + (f"; <b>{mas_n}</b> cubren más" if mas_n else "")
+                     + (f"; <b>{menos_n}</b> cubren menos" if menos_n else "") + ".")
+            else:
+                guia(f"Tienes <b>{r[col]:,} {unidad}</b>: <b>{mas_n}</b> proveedores tienen más y <b>{menos_n}</b> tienen "
+                     f"menos" + (f"; <b>{iguales}</b> tienen lo mismo que tú." if iguales else "."))
     with b:
         with tarjeta("Tú frente al programa", "rk_vs", "Cada indicador contra el promedio y contra el proveedor que más "
                      "tiene (100% = el mayor). Pasa el cursor para ver las cifras."):
@@ -1505,8 +1557,8 @@ def ranking_programa():
         tarjetas_lugar(sel)
     met = selector_metrica("met_prog")
     col, unidad, _, _ = METRICAS[met]
-    with tarjeta(f"Todos los proveedores por {met.lower()}", "rk_todos_p",
-                 "Cada barra es un proveedor, de más a menos; pasa el cursor para ver su nombre.",
+    titulo, sub = titulo_todos(met)
+    with tarjeta(titulo, "rk_todos_p", sub + " Pasa el cursor para ver los nombres.",
                  extra=f"{m.at[sel, 'nombre']}: #{int(m.at[sel, f'rk_{col}'])}" if sel else f"{N} proveedores"):
         grafica_todos(col, unidad, "g_rk_todos_p", resaltar=sel, con_nombres=True,
                       etiqueta=corto(m.at[sel, "nombre"], 24) if sel else "")
