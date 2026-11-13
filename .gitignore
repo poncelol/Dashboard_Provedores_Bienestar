@@ -5,3 +5,6 @@
 
 __pycache__/
 *.pyc
+
+# Lista de códigos para entregar a los proveedores
+codigos_proveedores.csv
