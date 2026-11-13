@@ -1612,26 +1612,71 @@ def chip_dif(pct):
     return f'<span class="chip {clase}">{pct:+.0f}%</span>'
 
 
-def grafica_precios(etiquetas, precios_, base, colores, clave, puntos=None, mediana=None, hover=None):
-    """Barras horizontales de precio por unidad, del más barato (arriba) al más caro. puntos: [(etiqueta, precio)]
-    de cada artículo, dibujados como puntos sobre la barra de su proveedor."""
+def frente_mediana(v, mediana):
+    """Texto corto de cuánto se aleja un precio de la mediana."""
+    pct = (v / mediana - 1) * 100
+    if abs(pct) < 2:
+        return "en la mediana"
+    return f"{abs(pct):.0f}% {'menos' if pct < 0 else 'más'} que la mediana"
+
+
+def color_precio(v, mediana):
+    """Verde: más barato que la mediana; dorado: en la mediana; rojo: más caro."""
+    pct = (v / mediana - 1) * 100
+    return T["ok"] if pct <= -2 else T["alerta"] if pct >= 2 else T["oro"]
+
+
+def leyenda_precios(resaltado=None, secundario=None):
+    items = [(T["ok"], "Más barato que la mediana"), (T["oro"], "En la mediana"), (T["alerta"], "Más caro que la mediana")]
+    if resaltado:
+        items.append((T["acento"], resaltado))
+    html = "".join(f'<span><i style="background:{alfa(c, .75) if c != T["acento"] else c}"></i>{escape(t)}</span>'
+                   for c, t in items)
+    if secundario:
+        html += (f'<span><i style="background:transparent;border:2px solid {T["acento"]}"></i>'
+                 f'{escape(secundario)}</span>')
+    md(f'<div class="leyenda">{html}</div>')
+
+
+def partir(texto, n=26):
+    """Parte un nombre largo en dos renglones (en el espacio más cercano a la mitad) para que se lea completo."""
+    texto = str(texto)
+    if len(texto) <= n:
+        return escape(texto)
+    espacios = [i for i, ch in enumerate(texto) if ch == " "]
+    if not espacios:
+        return escape(corto(texto, n))
+    i = min(espacios, key=lambda k: abs(k - len(texto) / 2))
+    return escape(corto(texto[:i], n + 4)) + "<br>" + escape(corto(texto[i + 1:], n + 4))
+
+
+def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resaltar=None, secundarios=None):
+    """Barras horizontales de precio por unidad, del más barato (arriba) al más caro, con la mediana punteada.
+    Cada barra dice su precio y cuánto se aleja de la mediana; el color indica si es más barato o más caro.
+    resaltar: índices que van en el color de acento; secundarios: índices con contorno de acento."""
+    resaltar, secundarios = set(resaltar or []), set(secundarios or [])
+    colores = [T["acento"] if i in resaltar else alfa(color_precio(v, mediana), .75) for i, v in enumerate(precios_)]
+    bordes = [T["acento"] if i in secundarios and i not in resaltar else "rgba(0,0,0,0)" for i in range(len(precios_))]
+    tope = max(precios_)
     fig = go.Figure(go.Bar(
-        x=precios_, y=etiquetas, orientation="h", marker_color=colores,
-        text=[f"${v:,.2f}" for v in precios_], textposition="outside", cliponaxis=False,
-        textfont=dict(color=T["texto2"], size=11), customdata=hover or etiquetas,
-        hovertemplate="<b>%{customdata}</b><br>$%{x:,.2f} por " + base + "<extra></extra>"))
-    if puntos:
-        fig.add_trace(go.Scatter(x=[p for _, p in puntos], y=[e for e, _ in puntos], mode="markers",
-                                 marker=dict(size=7, color=T["texto"], opacity=.55, line=dict(width=0)),
-                                 hovertemplate="Artículo: $%{x:,.2f} por " + base + "<extra></extra>"))
-    if mediana is not None:
-        fig.add_vline(x=mediana, line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana ${mediana:,.2f}",
-                      annotation_font_color=T["texto3"], annotation_position="top")
-    tope = max(max(precios_), max((p for _, p in puntos or []), default=0))
-    estilo(fig, max(220, 30 * len(etiquetas) + 60))
-    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
-    fig.update_xaxes(visible=False, range=[0, tope * 1.25])
-    fig.update_layout(margin=dict(t=26, b=4, r=8))
+        x=precios_, y=etiquetas, orientation="h", marker=dict(color=colores, line=dict(color=bordes, width=2.5)),
+        customdata=hover or etiquetas, hovertemplate="<b>%{customdata}</b><br>$%{x:,.2f} por " + base + "<extra></extra>"))
+    # Cifras en una columna alineada después de la barra más larga: la línea de la mediana nunca las cruza
+    fig.add_trace(go.Scatter(
+        x=[tope * 1.04] * len(precios_), y=etiquetas, mode="text", textposition="middle right", cliponaxis=False,
+        text=[f"<b>${v:,.2f}</b>  ·  {frente_mediana(v, mediana)}" for v in precios_],
+        textfont=dict(color=[color_precio(v, mediana) if i not in resaltar else T["acento"]
+                             for i, v in enumerate(precios_)], size=12), hoverinfo="skip"))
+    # Detrás de las barras y del texto, para que la línea no tape las cifras
+    fig.add_shape(type="line", x0=mediana, x1=mediana, y0=0, y1=1, yref="paper", layer="below",
+                  line=dict(dash="dot", width=2, color=T["texto3"]))
+    fig.add_annotation(x=mediana, y=1, yref="paper", yshift=14, xanchor="right", xshift=-4, showarrow=False,
+                       text=f"Mediana: <b>${mediana:,.2f}</b> por {base}", font=dict(color=T["texto2"], size=12))
+    estilo(fig, max(240, 46 * len(etiquetas) + 70))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=12, color=T["texto"]))
+    fig.update_xaxes(visible=False, range=[0, tope * 1.85])
+    fig.update_layout(margin=dict(t=36, b=4, r=8), bargap=.35)
+    fig.update_shapes(y1=1)
     mostrar(fig, clave)
 
 
@@ -1675,19 +1720,16 @@ def comparar_producto():
     with a:
         orden = g.dropna(subset=["median"]).sort_values(["median", "art"], ascending=[True, False])
         with tarjeta(f"Precio por {base} de cada proveedor", "cmp_p_precio",
-                     "La barra es el precio mediano de sus artículos; cada punto, un artículo. Arriba, el más barato.",
-                     extra=f"{len(orden)} proveedores"):
+                     f"Precio típico (mediana) de los artículos de cada proveedor. Arriba, el más barato; la línea "
+                     f"punteada es la mediana de todos.", extra=f"{len(orden)} proveedores"):
             if orden.empty:
                 md('<div class="lb-mas">Sin precio por unidad para comparar.</div>')
             else:
-                et = unicas([f"#{int(x.lugar)}  {corto(m.at[c, 'nombre'], 28)}" for c, x in orden.iterrows()])
-                pos = dict(zip(orden.index, et))
-                pts = [(pos[r.CVE], r.PRECIO_U) for r in con_precio[con_precio.BASE == base].itertuples()
-                       if r.CVE in pos]
-                grafica_precios(et, list(orden["median"]), base,
-                                [T["acento"] if c == resaltar else T["oro"] if x.lugar == 1 else alfa(T["verde"], .7)
-                                 for c, x in orden.iterrows()], "g_cmp_p_precio", puntos=pts, mediana=mediana,
-                                hover=[m.at[c, "nombre"] for c in orden.index])
+                leyenda_precios(resaltado=m.at[resaltar, "nombre"] if resaltar in orden.index else None)
+                et = unicas([f"<b>#{int(x.lugar)}</b>  {partir(m.at[c, 'nombre'])}" for c, x in orden.iterrows()])
+                grafica_precios(et, list(orden["median"]), base, "g_cmp_p_precio", mediana,
+                                hover=[m.at[c, "nombre"] for c in orden.index],
+                                resaltar=[i for i, c in enumerate(orden.index) if c == resaltar])
     with b:
         orden_a = g.loc[sorted(g.index, key=lambda c: m.at[c, "nombre"])].sort_values("art", ascending=False,
                                                                                     kind="stable")
@@ -1752,15 +1794,16 @@ def comparar_articulo():
     a_, b_ = st.columns([3, 2], gap="medium")
     with a_:
         with tarjeta(f"Precio por {a.BASE}: artículo elegido frente a los demás", "cmp_a_graf",
-                     "Arriba, el más barato. En color, el elegido; más claro, otros artículos del mismo proveedor.",
-                     extra=f"#{k} de {n}"):
-            et = unicas([f"#{int(x.lugar)}  {corto(x.ARTICULO, 26)} · {corto(x.PROV_CORTO, 16)}"
+                     "Arriba, el más barato; la línea punteada es la mediana de todos.", extra=f"#{k} de {n}"):
+            leyenda_precios(resaltado="Artículo elegido", secundario=f"Otros artículos de {a.PROV_CORTO}")
+            et = unicas([f"<b>#{int(x.lugar)}</b>  {escape(corto(x.ARTICULO, 30))}<br>"
+                         f"<span style='font-size:11px'>{escape(corto(x.PROV_CORTO, 30))}</span>"
                          for x in orden.itertuples()])
-            grafica_precios(et, list(orden.PRECIO_U), a.BASE,
-                            [T["acento"] if x.clave == sel else alfa(T["acento"], .35) if x.CVE == a.CVE
-                             else T["oro"] if x.lugar == 1 else alfa(T["verde"], .6) for x in orden.itertuples()],
-                            "g_cmp_a", mediana=mediana,
-                            hover=[f"{x.ARTICULO} · {x.PROV_CORTO}" for x in orden.itertuples()])
+            filas_o = list(orden.itertuples())
+            grafica_precios(et, list(orden.PRECIO_U), a.BASE, "g_cmp_a", mediana,
+                            hover=[f"{x.ARTICULO} · {x.PROV_CORTO}" for x in filas_o],
+                            resaltar=[i for i, x in enumerate(filas_o) if x.clave == sel],
+                            secundarios=[i for i, x in enumerate(filas_o) if x.CVE == a.CVE])
             if len(orden) < n:
                 guia(f"Se muestran los 15 más baratos y los cercanos al elegido; la tabla tiene los {n}.")
     with b_:
