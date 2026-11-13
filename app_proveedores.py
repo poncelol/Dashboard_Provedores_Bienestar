@@ -532,6 +532,29 @@ div[class*="st-key-card_"] { padding: 0 20px 16px 20px !important; gap: .5rem; }
 .st-key-buscar_art [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
 .st-key-buscar_art input { padding-left: 34px !important; }
 
+/* Ranking: lugar, selector de indicador y tarjetas de posición */
+.lugar { display: inline-grid; place-items: center; min-width: 34px; height: 24px; border-radius: 999px; padding: 0 7px;
+  font-size: .76rem; font-weight: 700; background: var(--sutil); color: var(--texto2); border: 1px solid var(--borde); }
+.lugar.l1 { background: #F6E3A6; color: #6b4f00; border-color: #D4A72C; }
+.lugar.l2 { background: #E5E8EC; color: #3f4650; border-color: #A9B1BA; }
+.lugar.l3 { background: #F1D3B8; color: #6b3a10; border-color: #B87333; }
+[data-testid="stButtonGroup"] button { background: var(--card) !important; border-color: var(--borde) !important;
+  color: var(--texto2) !important; }
+[data-testid="stButtonGroup"] button[aria-checked="true"], [data-testid="stButtonGroup"] button[aria-pressed="true"],
+[data-testid="stButtonGroup"] button[data-selected="true"] {
+  background: rgb(var(--acento-rgb) / .12) !important; border-color: var(--acento) !important; color: var(--acento) !important; }
+[data-testid="stButtonGroup"] button * { color: inherit !important; }
+.rk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.rk { padding: 14px; display: flex; flex-direction: column; gap: 6px; border-top: 4px solid var(--c) !important; }
+.rk .cab { display: flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 600; color: var(--tenue);
+  text-transform: uppercase; letter-spacing: .04em; }
+.rk .cab svg { color: var(--c); }
+.rk .pos { font-size: 1.7rem; font-weight: 800; color: var(--texto); line-height: 1; }
+.rk .pos small { font-size: .8rem; font-weight: 600; color: var(--tenue); }
+.rk .val { font-size: .8rem; color: var(--texto3); }
+@media (max-width: 1100px) { .rk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .rk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 .lb-mas { font-size: .84rem; color: var(--tenue); padding: 10px 0; display: flex; gap: 8px; align-items: center; }
 .lb-mas svg { color: var(--ok); }
 .pie { text-align: center; margin-top: 40px; font-size: .75rem; color: var(--tenue); }
@@ -689,6 +712,59 @@ def barras_h(serie: pd.Series, clave, color, unidad="artículos", n=12):
     fig.update_xaxes(visible=False, range=[0, s.max() * 1.2])
     fig.update_layout(margin=dict(t=4, b=4, r=8))
     mostrar(fig, clave)
+
+
+def unicas(etiquetas):
+    """Etiquetas de eje sin repetidos (plotly junta las categorías iguales en una sola barra)."""
+    vistas, salida = set(), []
+    for e in etiquetas:
+        while e in vistas:
+            e += "​"
+        vistas.add(e)
+        salida.append(e)
+    return salida
+
+
+def lugar(n):
+    n = int(n)
+    return f'<span class="lugar{f" l{n}" if n <= 3 else ""}">#{n}</span>'
+
+
+def barras_ranking(valores, nombres, lugares, clave, color, unidad, invertir=False):
+    """Barras horizontales con el lugar delante del nombre. invertir: la de menor valor queda arriba."""
+    etiquetas = unicas([f"#{int(l)}  {corto(n, 30)}" for l, n in zip(lugares, nombres)])
+    fig = go.Figure(go.Bar(
+        x=list(valores), y=etiquetas, orientation="h", marker_color=color,
+        text=[f"{v:,.0f}" for v in valores], textposition="outside", cliponaxis=False,
+        textfont=dict(color=T["texto2"], size=11), customdata=list(nombres),
+        hovertemplate="<b>%{customdata}</b><br>%{x:,} " + unidad + "<extra></extra>"))
+    estilo(fig, max(240, 28 * len(etiquetas) + 40))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
+    fig.update_xaxes(visible=False, range=[0, max(max(valores), 1) * 1.2])
+    fig.update_layout(margin=dict(t=4, b=4, r=8))
+    mostrar(fig, clave)
+
+
+def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10):
+    """Dos tarjetas lado a lado: los n con más y los n con menos. Los empates quedan en orden alfabético."""
+    serie = serie.loc[sorted(serie.index, key=lambda k: str(nombres.get(k, k)))]
+    lugares = serie.rank(ascending=False, method="min")
+    mas = serie.sort_values(ascending=False, kind="stable").head(n)
+    menos = serie.sort_values(ascending=True, kind="stable").head(n)
+    a, b = st.columns(2, gap="medium")
+    with a:
+        with tarjeta(f"{quien} con más {unidad}", f"{clave}_mas", f"Los {len(mas)} primeros lugares.",
+                     extra=f"Máximo: {serie.max():,.0f}"):
+            barras_ranking(mas.values, [nombres.get(k, k) for k in mas.index], lugares[mas.index], f"g_{clave}_mas",
+                           T["verde"], unidad)
+    with b:
+        with tarjeta(f"{quien} con menos {unidad}", f"{clave}_menos", f"Los {len(menos)} últimos lugares.",
+                     extra=f"Mínimo: {serie.min():,.0f}"):
+            barras_ranking(menos.values, [nombres.get(k, k) for k in menos.index], lugares[menos.index],
+                           f"g_{clave}_menos", T["oro"], unidad)
+            empate = int((serie == serie.min()).sum())
+            if empate > n:
+                guia(f"<b>{empate}</b> tienen {serie.min():,.0f} {unidad}; aquí se muestran {n} en orden alfabético.")
 
 
 def posicion_rango(precio, minimo, maximo):
@@ -851,7 +927,21 @@ m["ofertas"] = ofertas.groupby("CVE")["ART_ID"].nunique().reindex(m.index, fill_
 m["rango_art"] = en_rangos(m["art"], RANGOS_ART).astype(str)
 m["rango_reg"] = en_rangos(m["regiones"], RANGOS_REG).astype(str)
 N = len(m)
-exp_reg = unicos[["CVE", "ART_ID", "REGIONES"]].explode("REGIONES").dropna()
+# Indicadores del ranking: etiqueta -> (columna, unidad, ícono, color)
+METRICAS = {
+    "Artículos": ("art", "artículos", "articulo", P626),
+    "Productos": ("prod", "productos", "producto", P7420),
+    "Marcas": ("marcas", "marcas", "marca", P1255),
+    "Regiones": ("regiones", "regiones", "mapa", P7421),
+    "Ofertas vigentes": ("ofertas", "ofertas", "estrella", P627),
+    "Hojas de negociación": ("hojas", "hojas", "hoja", P1255_60),
+}
+for _col, *_ in METRICAS.values():
+    m[f"rk_{_col}"] = m[_col].rank(ascending=False, method="min")
+# Productos: cuántos proveedores, artículos y marcas tiene cada uno
+prods_m = unicos.groupby("PROD").agg(nombre=("PRODUCTO", "first"), prov=("CVE", "nunique"), art=("ART_ID", "nunique"),
+                                     marcas=("MARCA", "nunique"))
+exp_reg =unicos[["CVE", "ART_ID", "REGIONES"]].explode("REGIONES").dropna()
 reg = exp_reg.groupby("REGIONES").agg(prov=("CVE", "nunique"), art=("ART_ID", "nunique")) \
     .reindex(list(REGIONES), fill_value=0)
 
@@ -969,6 +1059,134 @@ def indice(items):
 
 
 # ──────────────────────────────────────────────────────────────
+# RANKING Y COMPARATIVAS
+# ──────────────────────────────────────────────────────────────
+def selector_metrica(clave, opciones=None, default="Artículos"):
+    opciones = opciones or list(METRICAS)
+    return st.segmented_control("Indicador", opciones, default=default, key=clave,
+                                label_visibility="collapsed") or default
+
+
+def ranking_proveedor(yo):
+    """Lugar del proveedor en cada indicador; los demás proveedores aparecen sin nombre."""
+    r = m.loc[yo]
+    mio = unicos[unicos.CVE == yo]
+    seccion("Ranking y comparativas", f"Tu lugar entre los {N} proveedores en cada indicador (#1 = el que tiene más). "
+            "Los demás proveedores no se identifican.", "ranking")
+    md('<div class="rk-grid">' + "".join(
+        f'<div class="m-card rk" style="--c:{color}"><div class="cab">{svg(ico, 14)}{et}</div>'
+        f'<div class="pos">#{int(r[f"rk_{col}"])} <small>de {N}</small></div>'
+        f'<div class="val">{r[col]:,} {unidad}</div></div>'
+        for et, (col, unidad, ico, color) in METRICAS.items()) + "</div>")
+
+    met = selector_metrica("met_prov")
+    col, unidad, _, _ = METRICAS[met]
+    k = int(r[f"rk_{col}"])
+    a, b = st.columns([3, 2], gap="medium")
+    with a:
+        with tarjeta(f"Todos los proveedores por {met.lower()}", "rk_todos",
+                     "Cada barra es un proveedor, de más a menos; en color, tú.", extra=f"Lugar #{k} de {N}"):
+            s = m[col].sort_values(ascending=False, kind="stable")
+            rk = s.rank(ascending=False, method="min")
+            i = list(s.index).index(yo) + 1
+            fig = go.Figure(go.Bar(
+                x=list(range(1, N + 1)), y=s.values, customdata=rk.values,
+                marker_color=[T["acento"] if c == yo else alfa(T["verde"], .45) for c in s.index],
+                hovertemplate="Lugar #%{customdata:.0f} · %{y:,} " + unidad + "<extra></extra>"))
+            fig.add_hline(y=s.median(), line_dash="dot", line_color=T["tenue"],
+                          annotation_text=f"Mediana: {s.median():,.0f}", annotation_position="top right",
+                          annotation_font_color=T["texto3"])
+            fig.add_annotation(x=i, y=r[col], text=f"<b>Tú · #{k}</b>", showarrow=True, arrowhead=0, ax=0, ay=-34,
+                               arrowcolor=T["acento"], font=dict(color=T["acento"], size=13))
+            estilo(fig, 340)
+            fig.update_layout(bargap=.15, margin=dict(t=30, b=8))
+            fig.update_xaxes(tickvals=[1, N], ticktext=["Más", "Menos"], gridcolor="rgba(0,0,0,0)",
+                             tickfont=dict(color=T["texto2"], size=12))
+            fig.update_yaxes(range=[0, s.max() * 1.2])
+            mostrar(fig, "g_rk_todos")
+            mas_n, menos_n = int((m[col] > r[col]).sum()), int((m[col] < r[col]).sum())
+            iguales = int((m[col] == r[col]).sum()) - 1
+            guia(f"Tienes <b>{r[col]:,} {unidad}</b>: <b>{mas_n}</b> proveedores tienen más y <b>{menos_n}</b> tienen "
+                 f"menos" + (f"; <b>{iguales}</b> tienen lo mismo que tú." if iguales else "."))
+    with b:
+        with tarjeta("Tú frente al programa", "rk_vs", "Cada indicador contra el promedio y contra el proveedor que más "
+                     "tiene (100% = el mayor). Pasa el cursor para ver las cifras."):
+            ets = list(METRICAS)
+            cols_ = [METRICAS[e][0] for e in ets]
+            fig = go.Figure()
+            for nombre, vals, color in [("El mayor del programa", [m[c].max() for c in cols_], alfa(T["verde"], .35)),
+                                        ("Promedio", [m[c].mean() for c in cols_], T["tenue"]),
+                                        ("Tú", [r[c] for c in cols_], T["acento"])]:
+                pct = [v / m[c].max() * 100 if m[c].max() else 0 for v, c in zip(vals, cols_)]
+                fig.add_trace(go.Bar(y=ets, x=pct, name=nombre, orientation="h", marker_color=color,
+                                     customdata=[f"{v:,.1f}".removesuffix(".0") for v in vals],
+                                     hovertemplate="<b>%{y}</b><br>" + nombre + ": %{customdata}<extra></extra>"))
+            estilo(fig, 400, leyenda=True)
+            fig.update_layout(barmode="group", bargap=.25, bargroupgap=.05, margin=dict(t=4, b=40),
+                              legend=dict(traceorder="reversed", y=-0.08))
+            fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(color=T["texto2"]))
+            fig.update_xaxes(range=[0, 105], ticksuffix="%")
+            mostrar(fig, "g_rk_vs")
+
+    st.write("")
+    pp = prods_m.loc[mio.PROD.unique()].sort_values(["prov", "nombre"], ascending=[False, True])
+    solo = int((pp.prov == 1).sum())
+    with tarjeta("Tus productos: de más a menos proveedores", "rk_prods",
+                 "Cuántos proveedores (contándote) surten cada uno de tus productos. En color, los que solo surtes tú.",
+                 extra=[f"{len(pp)} productos", f"{solo} solo tuyos"]):
+        fig = go.Figure(go.Bar(
+            x=pp.prov, y=unicas([corto(p, 34) for p in pp.nombre]), orientation="h",
+            marker_color=[T["acento"] if v == 1 else T["verde"] for v in pp.prov],
+            text=["Solo tú" if v == 1 else f"{v} proveedores" for v in pp.prov], textposition="outside",
+            cliponaxis=False, textfont=dict(color=T["texto2"], size=11), customdata=pp.art,
+            hovertemplate="<b>%{y}</b><br>%{x} proveedores · %{customdata} artículos en el programa<extra></extra>"))
+        estilo(fig, max(220, 26 * len(pp) + 40))
+        fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
+        fig.update_xaxes(visible=False, range=[0, pp.prov.max() * 1.25])
+        fig.update_layout(margin=dict(t=4, b=4))
+        mostrar(fig, "g_rk_prods")
+
+
+def ranking_programa():
+    """Quién tiene más y quién tiene menos: proveedores, productos y regiones."""
+    seccion("Ranking y comparativas", "Quién tiene más y quién tiene menos: proveedores, productos y regiones. "
+            "Elige el indicador con los botones.", "ranking")
+    met = selector_metrica("met_prog")
+    col, unidad, _, _ = METRICAS[met]
+    mas_y_menos(m[col], m["nombre"].to_dict(), "rkp", "Proveedores", unidad)
+
+    st.write("")
+    crit = selector_metrica("crit_prod", ["Proveedores", "Artículos", "Marcas"], default="Proveedores")
+    mas_y_menos(prods_m[{"Proveedores": "prov", "Artículos": "art", "Marcas": "marcas"}[crit]],
+                prods_m["nombre"].to_dict(), "rkpr", "Productos", crit.lower())
+
+    st.write("")
+    a, b = st.columns(2, gap="medium")
+    with a:
+        orden = reg.sort_values(["prov", "art"], ascending=False)
+        with tarjeta("Regiones de más a menos proveedores", "rk_reg", "Los nacionales cuentan en todas las regiones.",
+                     extra=f"{len(REGIONES)} regiones"):
+            barras_ranking(orden.prov.values, [f"{s} · {REGIONES[s][0]}" for s in orden.index],
+                           orden.prov.rank(ascending=False, method="min"), "g_rk_reg", T["acento"], "proveedores")
+    with b:
+        n_nal, n_reg = int(m.nacional.sum()), int((~m.nacional).sum())
+        with tarjeta("Nacionales frente a regionales", "rk_alc", "Promedio por proveedor en cada grupo.",
+                     extra=[f"{n_nal} nacionales", f"{n_reg} regionales"]):
+            ets = ["Artículos", "Productos", "Marcas", "Ofertas vigentes", "Hojas de negociación"]
+            fig = go.Figure()
+            for nombre, filtro, color in [("Nacionales", m.nacional, T["verde"]), ("Regionales", ~m.nacional, T["oro"])]:
+                vals = [m.loc[filtro, METRICAS[e][0]].mean() for e in ets]
+                fig.add_trace(go.Bar(x=ets, y=vals, name=nombre, marker_color=color, text=[f"{v:.1f}" for v in vals],
+                                     textposition="outside", cliponaxis=False, textfont=dict(color=T["texto2"], size=11),
+                                     hovertemplate="<b>%{x}</b><br>" + nombre + ": %{y:.1f} en promedio<extra></extra>"))
+            estilo(fig, 380, leyenda=True)
+            fig.update_layout(barmode="group", bargap=.3, margin=dict(t=10, b=50))
+            fig.update_xaxes(gridcolor="rgba(0,0,0,0)", tickfont=dict(color=T["texto2"]))
+            fig.update_yaxes(visible=False)
+            mostrar(fig, "g_rk_alc")
+
+
+# ──────────────────────────────────────────────────────────────
 # VISTA DE UN PROVEEDOR
 # ──────────────────────────────────────────────────────────────
 def vista_proveedor(yo):
@@ -984,9 +1202,9 @@ def vista_proveedor(yo):
        f'<span class="etq-c">{svg("mapa", 14)}{"Cobertura nacional" if r.nacional else "Cobertura regional"}</span>'
        f'<span class="etq-c">{svg("hoja", 14)}{r.hojas:,} {"hoja" if r.hojas == 1 else "hojas"} de negociación</span>'
        f'</div></div>')
-    indice([("resumen", "Resumen"), ("surtido", "Tu surtido"), ("precios", "Tu precio en el mercado"),
-            ("programa", "Tu lugar en el programa"), ("regiones", "Cobertura"), ("vigencia", "Vigencias"),
-            ("articulos", "Tus artículos")])
+    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("surtido", "Tu surtido"),
+            ("precios", "Tu precio en el mercado"), ("programa", "Proveedores por rangos"), ("regiones", "Cobertura"),
+            ("vigencia", "Vigencias"), ("articulos", "Tus artículos")])
 
     # 1. Resumen
     seccion("Resumen", "Lo principal de tu participación en el programa.", "resumen")
@@ -1029,7 +1247,9 @@ def vista_proveedor(yo):
     md('<div style="height:4px"></div>')
     lectura_rapida(hall)
 
-    # 2. Surtido
+    ranking_proveedor(yo)
+
+    # Surtido
     seccion("Tu surtido", "Qué productos ofreces y en qué rangos de costo unitario están tus artículos.", "surtido")
     a, b = st.columns([3, 2], gap="medium")
     with a:
@@ -1072,7 +1292,7 @@ def vista_proveedor(yo):
                  + ". El rango se divide en tres partes iguales.")
 
     # 4. Lugar en el programa (por rangos, sin nombres)
-    seccion("Tu lugar en el programa", f"Cuántos de los {N} proveedores hay en cada rango; en color, el tuyo.",
+    seccion("Proveedores por rangos", f"Cuántos de los {N} proveedores hay en cada rango; en color, el tuyo.",
             "programa")
     a, b = st.columns(2, gap="medium")
     with a:
@@ -1158,8 +1378,8 @@ def seccion_vigencias(d, propio):
 # VISTA DEL PROGRAMA COMPLETO (administrador)
 # ──────────────────────────────────────────────────────────────
 def vista_programa():
-    indice([("resumen", "Resumen"), ("proveedores", "Proveedores por rangos"), ("precios", "Rangos de precio"),
-            ("regiones", "Cobertura"), ("vigencia", "Vigencias")])
+    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("proveedores", "Proveedores por rangos"),
+            ("precios", "Rangos de precio"), ("regiones", "Cobertura"), ("vigencia", "Vigencias")])
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
     md('<div class="kpis">' + "".join([
@@ -1188,6 +1408,8 @@ def vista_programa():
         (P1255_60, "calendario", f"<b>{len(pronto):,}</b> artículos vencen en los próximos 30 días."),
     ])
 
+    ranking_programa()
+
     seccion("Proveedores por rangos", "Cuántos proveedores hay en cada rango de surtido y de cobertura.", "proveedores")
     a, b = st.columns(2, gap="medium")
     with a:
@@ -1200,11 +1422,12 @@ def vista_programa():
     st.write("")
     with tarjeta("Proveedores", "pa_tabla", "Abre el tablero de cualquiera con el selector de arriba.",
                  extra=f"{N} proveedores"):
-        filas = [[escape(x.nombre) + f"<small>CVE {escape(c)}</small>", f"{x.art:,}", escape(x.rango_art),
-                  f"{x['prod']:,}", f"{x.marcas:,}", "Nacional" if x.nacional else f"{x.regiones} de {len(REGIONES)}",
-                  f"{x.ofertas:,}"] for c, x in m.sort_values("nombre").iterrows()]
-        tabla(["Proveedor", "Artículos", "Rango", "Productos", "Marcas", "Cobertura", "Ofertas"], filas,
-              numericas=(1, 3, 4, 6), alto=460)
+        filas = [[lugar(x.rk_art), escape(x.nombre) + f"<small>CVE {escape(c)}</small>", f"{x.art:,}",
+                  escape(x.rango_art), f"{x['prod']:,}", f"{x.marcas:,}",
+                  "Nacional" if x.nacional else f"{x.regiones} de {len(REGIONES)}", f"{x.ofertas:,}"]
+                 for c, x in m.sort_values(["rk_art", "nombre"]).iterrows()]
+        tabla(["Lugar", "Proveedor", "Artículos", "Rango", "Productos", "Marcas", "Cobertura", "Ofertas"], filas,
+              numericas=(2, 4, 5, 7), alto=460)
 
     seccion("Rangos de precio por producto", "Precio por kilo, litro o pieza de los productos que surten dos o más "
             "proveedores: del más bajo al más alto.", "precios")
