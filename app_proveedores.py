@@ -1915,12 +1915,11 @@ def vista_programa():
                                         n=("CVE", "nunique")).sort_values("nombre")
     l_art = [(x.nombre, f"ART. {a} · {x.prov}" + (f" y {x.n - 1} más" if x.n > 1 else ""))
              for a, x in arts.iterrows()]
-    # Desglose de marcas: artículos en ranking, del que tiene más marcas al que tiene menos
-    arts_marcas = (unicos.groupby("ART_ID").agg(nombre=("ARTICULO", "first"), marcas=("MARCA", "nunique"))
-                   .sort_values(["marcas", "nombre"], ascending=[False, True]))
-    l_marca = [(f"{i}. {x.nombre}", f"ART. {a} · {plural(x.marcas, 'marca', 'marcas')}")
-               for i, (a, x) in enumerate(arts_marcas.iterrows(), 1)]
-    lider = arts_marcas.iloc[0]
+    # Desglose de marcas: productos en ranking, del que tiene más marcas al que tiene menos
+    prods_marcas = prods_m.sort_values(["marcas", "nombre"], ascending=[False, True])
+    l_marca = [(f"{i}. {x.nombre}", plural(x.marcas, "marca", "marcas"))
+               for i, x in enumerate(prods_marcas.itertuples(), 1)]
+    lider = prods_marcas.iloc[0]
     l_reg = [(f"{s} · {REGIONES[s][0]}", f"{int(reg.at[s, 'prov'])} proveedores · {int(reg.at[s, 'art']):,} art.")
              for s in REGIONES]
     listados([
@@ -1928,7 +1927,7 @@ def vista_programa():
         ("Productos", "producto", f"{unicos.PROD.nunique():,}", f"{n_comp} con dos o más proveedores", l_prod, P7420),
         ("Artículos", "articulo", f"{unicos.ART_ID.nunique():,}", f"Mediana por proveedor: {m.art.median():.0f}",
          l_art, P1255),
-        ("Marcas", "marca", f"{unicos.MARCA.nunique():,}", f"Artículo con más marcas: {escape(str(lider.nombre))} ({lider.marcas:,})",
+        ("Marcas", "marca", f"{unicos.MARCA.nunique():,}", f"Producto con más marcas:{escape(str(lider.nombre))} ({lider.marcas:,})",
          l_marca, P7421),
         ("Regiones", "mapa", f"{len(REGIONES)}", "Gerencias regionales", l_reg, P1255_60),
     ])
