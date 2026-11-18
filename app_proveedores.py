@@ -249,6 +249,7 @@ def cargar(contenido: bytes) -> pd.DataFrame:
     factor = pd.to_numeric(df["UM"].map(lambda u: UNIDAD_BASE.get(u, (None, None))[0]), errors="coerce")
     df["BASE"] = df["UM"].map(lambda u: UNIDAD_BASE.get(u, (None, None))[1])
     cantidad = df["GRAM"] * factor
+    df["CONTENIDO"] = cantidad.round(4)   # contenido de una pieza en kg / L / pza (sin importar cuántas trae la caja)
     df["PRECIO_U"] = (df["COSTO_UNIT"] / cantidad).where(cantidad > 0)
     return df.reset_index(drop=True)
 
@@ -1680,6 +1681,48 @@ def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resal
     mostrar(fig, clave)
 
 
+# Palabras que no distinguen un artículo de otro (unidades, empaque, sabores, conectores)
+PALABRAS_VACIAS = set("""
+DE DEL LA EL LOS LAS CON SIN Y EN PARA POR SABOR SABORES PAQ PAQUETE PZ PZA PZS PIEZA PIEZAS GR GRS G KG ML LT LTS
+LITRO LITROS GRAMOS CAJA MASTER EXHIBIDOR BOLSA SOBRE ROLLO CHICO CHICA MEDIANO MEDIANA GRANDE MINI SUPER EXTRA
+NUEVO NUEVA ORIGINAL CLASICO CLASICA TRADICIONAL ESPECIAL PREMIUM ECONOMICO FAMILIAR INDIVIDUAL HOJAS USOS
+VAINILLA CHOCOLATE FRESA NUEZ COCO NARANJA LIMON CANELA CAJETA MANGO PINA DURAZNO MANZANA UVA GUAYABA TAMARINDO
+COMBINADO COMBINADA COMBINADAS SURTIDA SURTIDAS BLANCO BLANCA AZUL ROJO ROJA VERDE AMARILLO NEGRO
+""".split())
+
+
+def palabras(texto) -> list:
+    """Palabras significativas de un texto, en orden, sin acentos, sin números y en singular."""
+    t = unicodedata.normalize("NFD", str(texto).upper()).encode("ascii", "ignore").decode()
+    salida = []
+    for w in re.findall(r"[A-Z]{3,}", t):
+        w = re.sub(r"(ES|S)$", "", w) if len(w) > 4 and w.endswith("S") else w
+        if w not in PALABRAS_VACIAS and w not in salida:
+            salida.append(w)
+    return salida
+
+
+def similares(a, candidatos: pd.DataFrame) -> pd.Series:
+    """Marca los candidatos que son el mismo artículo que «a» dentro de su producto:
+    - su palabra principal (la primera, p. ej. CUBETA, MACHETE) coincide, salvo que sea la del producto (GALLETA), y
+    - comparten una palabra que los distingue (sin contar producto, marca, proveedor ni sabores): MARIAS, AGUA…
+    Si el artículo no tiene palabras que lo distingan (p. ej. CLORO CLORALUZ), basta con que el otro contenga
+    su palabra principal (BLANQUEADOR CLORO DAR)."""
+    def partes(x):
+        ps, prod = palabras(x.ARTICULO), set(palabras(x.PRODUCTO))
+        quitar = prod | set(palabras(x.MARCA)) | set(palabras(x.PROV_CORTO))
+        principal = ps[0] if ps else None
+        return principal, principal in prod, set(ps), {w for w in ps[1:] if w not in quitar}
+    p_a, gen_a, _, n_a = partes(a)
+
+    def igual(x):
+        p_x, gen_x, todas_x, n_x = partes(x)
+        if p_a != p_x and not (gen_a or gen_x):
+            return False
+        return bool(n_a & n_x) if n_a else p_a in todas_x
+    return pd.Series([igual(x) for x in candidatos.itertuples()], index=candidatos.index)
+
+
 def comparar_articulo():
     u = unicos.assign(clave=unicos.CVE + "|" + unicos.ART_ID).sort_values(["ARTICULO", "PROV_CORTO"])
     fila = u.set_index("clave")
@@ -1692,6 +1735,27 @@ def comparar_articulo():
         guia(f"<b>{escape(a.ARTICULO)}</b> no tiene otros artículos de <b>{escape(a.PRODUCTO)}</b> con precio por "
              "unidad para compararlo.")
         return
+    # Solo se comparan artículos iguales. Lo más justo es la misma presentación (mismo gramaje o litraje por pieza);
+    # si se incluyen otras presentaciones, el precio se lleva a kg / L / pza para ponerlas en la misma escala.
+    iguales = similares(a, pares) | (pares.clave == sel)
+    misma = iguales & ((pares.CONTENIDO - a.CONTENIDO).abs() < 1e-6)
+    cont = presentacion(1, a.GRAM, a.UM).replace("1 × ", "")
+    opciones = {"misma": (f"Iguales, misma presentación de {cont} ({int(misma.sum())})", misma),
+                "iguales": (f"Iguales, todas las presentaciones ({int(iguales.sum())})", iguales),
+                "todos": (f"Todo el producto {a.PRODUCTO} ({len(pares)})", pd.Series(True, index=pares.index))}
+    validas = [k for k, (_, filtro) in opciones.items() if filtro.sum() >= 2]
+    validas = [k for i, k in enumerate(validas) if i == 0 or opciones[k][1].sum() > opciones[validas[i - 1]][1].sum()]
+    if len(validas) > 1:
+        modo = st.radio("Comparar con", validas, format_func=lambda k: opciones[k][0], horizontal=True,
+                        key=f"cmp_modo_{sel}")
+    else:
+        modo = validas[0]
+    if "misma" not in validas:
+        guia(f"Nadie más tiene <b>{escape(a.ARTICULO)}</b> en la misma presentación ({escape(cont)}); se compara "
+             + ("con artículos iguales de otras presentaciones" if modo == "iguales" else
+                f"con todo el producto <b>{escape(a.PRODUCTO)}</b>, que puede incluir artículos distintos")
+             + f", llevando el precio a $ por {a.BASE}.")
+    pares = pares[opciones[modo][1]].copy()
     pares["lugar"] = pares.PRECIO_U.rank(method="min")
     mediana = pares.PRECIO_U.median()
     pares["dif"] = (pares.PRECIO_U / a.PRECIO_U - 1) * 100
@@ -1707,8 +1771,16 @@ def comparar_articulo():
         kpi_html("Frente a la mediana", f"{dif_med:+.0f}%", "más barato" if dif_med < 0 else "más caro" if dif_med > 0
                  else "igual a la mediana", "rangos", P7421),
     ]) + "</div>")
-    guia(f"<b>{escape(a.ARTICULO)}</b> de <b>{escape(a.PROV_CORTO)}</b> frente a los <b>{n - 1}</b> artículos más de "
-         f"<b>{escape(a.PRODUCTO)}</b> ({n_prov} proveedores), comparando el precio por {a.BASE}.")
+    if modo == "misma":
+        txt = (f"<b>{n - 1}</b> artículos iguales en la misma presentación ({escape(cont)}): como el contenido es el "
+               f"mismo, el más barato por {a.BASE} también es el más barato por pieza.")
+    elif modo == "iguales":
+        txt = (f"<b>{n - 1}</b> artículos iguales en distintas presentaciones. Como cambia el contenido, se compara "
+               f"el precio por {a.BASE} (costo de una pieza ÷ su contenido); los empaques grandes suelen salir más "
+               "baratos por unidad.")
+    else:
+        txt = (f"los <b>{n - 1}</b> artículos más de <b>{escape(a.PRODUCTO)}</b>, comparando el precio por {a.BASE}.")
+    guia(f"<b>{escape(a.ARTICULO)}</b> de <b>{escape(a.PROV_CORTO)}</b> frente a {txt} ({n_prov} proveedores)")
 
     orden = pares.sort_values(["PRECIO_U", "ARTICULO"])
     if len(orden) > 35:   # muchos artículos: los 15 más baratos y los que están alrededor del elegido
@@ -1751,7 +1823,8 @@ def comparar_articulo():
 
 def comparador():
     seccion("Comparar por artículo", "Elige un artículo para compararlo con los del mismo producto de otros "
-            "proveedores. Los precios se comparan por kilo, litro o pieza.", "comparar")
+            "proveedores. Se compara contra artículos iguales y, como las presentaciones cambian, el precio va por kilo, "
+            "litro o pieza.", "comparar")
     comparar_articulo()
 
 
@@ -1777,15 +1850,12 @@ def vista_proveedor(yo):
     # 1. Resumen
     seccion("Resumen", "Lo principal de tu participación en el programa.", "resumen")
     med = m.median(numeric_only=True)
-    md('<div class="kpis">' + "".join([
+    md('<div class="kpis cuatro">' + "".join([
         kpi_html("Artículos", f"{r.art:,}", f"Mediana del programa: {med.art:.0f}", "articulo", P626),
         kpi_html("Productos", f"{r['prod']:,}", f"Mediana del programa: {med['prod']:.0f}", "producto", P7420),
         kpi_html("Marcas", f"{r.marcas:,}", f"Mediana del programa: {med.marcas:.0f}", "marca", P1255),
         kpi_html("Regiones", f"{r.regiones} de {len(REGIONES)}",
                  "Llegas a todo el país" if r.nacional else "Gerencias regionales que cubres", "mapa", P7421),
-        kpi_html("Costo unitario mediano", dinero(r.costo), f"Mediana del programa: {dinero(med.costo)}", "precio", P627),
-        kpi_html("Productos con más proveedores", f"{len(mios_p):,}",
-                 f"de tus {r['prod']:,} productos tienen rango de precio", "balanza", P1255_60),
     ]) + "</div>")
 
     hall = [(P626, "articulo", f"Participas con <b>{r.art:,} artículos</b> de <b>{r['prod']:,} productos</b> y "
@@ -1804,8 +1874,6 @@ def vista_proveedor(yo):
     hall.append((P627, "mapa", f"Tienes <b>cobertura nacional</b>: llegas a las {len(REGIONES)} regiones." if r.nacional
                  else f"Llegas a <b>{len(regs_mias)} de {len(REGIONES)}</b> gerencias regionales: "
                       f"<b>{escape(', '.join(REGIONES[s][0] for s in REGIONES if s in regs_mias))}</b>."))
-    med_costo = m.costo.median()
-    hall.append((P1255_60, "precio", f"Tu costo unitario mediano es <b>{dinero(r.costo)}</b> por pieza; el del programa es <b>{dinero(med_costo)}</b>."))
     md('<div style="height:4px"></div>')
     lectura_rapida(hall)
 
