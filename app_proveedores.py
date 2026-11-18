@@ -1916,9 +1916,9 @@ def vista_programa():
     l_art = [(x.nombre, f"ART. {a} · {x.prov}" + (f" y {x.n - 1} más" if x.n > 1 else ""))
              for a, x in arts.iterrows()]
     # Marcas en ranking: de la que tiene más artículos a la que tiene menos
-    marcas_m = (unicos.groupby("MARCA").agg(art=("ART_ID", "nunique"), prov=("CVE", "nunique"))
+    marcas_m = (unicos.groupby("MARCA").agg(art=("ART_ID", "nunique"))
                 .reset_index().sort_values(["art", "MARCA"], ascending=[False, True]))
-    l_marca = [(f"{i}. {x.MARCA}", f"{x.art:,} art. · {plural(x.prov, 'proveedor', 'proveedores')}")
+    l_marca = [(f"{i}. {x.MARCA}", plural(x.art, "artículo", "artículos"))
                for i, x in enumerate(marcas_m.itertuples(), 1)]
     lider = marcas_m.iloc[0]
     l_reg = [(f"{s} · {REGIONES[s][0]}", f"{int(reg.at[s, 'prov'])} proveedores · {int(reg.at[s, 'art']):,} art.")
