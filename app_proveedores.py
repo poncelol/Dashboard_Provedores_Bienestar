@@ -1680,82 +1680,6 @@ def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resal
     mostrar(fig, clave)
 
 
-def comparar_producto():
-    c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
-    prod = c1.selectbox("Producto", list(prods_m.sort_values("nombre").index), key="cmp_prod",
-                        format_func=lambda p: f"{prods_m.at[p, 'nombre']} · "
-                                              f"{prods_m.at[p, 'prov']} {'proveedor' if prods_m.at[p, 'prov'] == 1 else 'proveedores'}")
-    d = unicos[unicos.PROD == prod]
-    provs = sorted(d.CVE.unique(), key=lambda c: m.at[c, "nombre"])
-    resaltar = c2.selectbox("Resaltar proveedor", [""] + provs, key=f"cmp_res_{prod}",
-                            format_func=lambda c: "Ninguno" if not c else m.at[c, "nombre"]) or None
-    con_precio = d.dropna(subset=["PRECIO_U", "BASE"])
-    bases = con_precio.BASE.value_counts()
-    base = bases.index[0] if len(bases) else None
-    if len(bases) > 1:   # mismo producto en kilos y en piezas, por ejemplo: se compara una unidad a la vez
-        base = st.segmented_control("Unidad", list(bases.index), default=base, key=f"cmp_base_{prod}",
-                                    format_func=lambda b: f"Precio por {b}") or base
-
-    # Por proveedor: artículos, marcas, cobertura y precio por unidad (mediana, mínimo y máximo de sus artículos)
-    g = d.groupby("CVE").agg(art=("ART_ID", "nunique"), marcas=("MARCA", "nunique"))
-    p = con_precio[con_precio.BASE == base].groupby("CVE")["PRECIO_U"].agg(["median", "min", "max"])
-    g = g.join(p)
-    mediana = p["median"].median() if len(p) else None
-    g["lugar"] = g["median"].rank(method="min")
-    g["dif"] = (g["median"] / mediana - 1) * 100 if mediana else float("nan")
-
-    md('<div class="kpis cuatro">' + "".join([
-        kpi_html("Proveedores", f"{len(g):,}", "lo surten", "proveedor", P626),
-        kpi_html("Artículos", f"{d.ART_ID.nunique():,}", "en este producto", "articulo", P7420),
-        kpi_html("Marcas", f"{d.MARCA.nunique():,}", "distintas", "marca", P1255),
-        kpi_html(f"Rango por {base or 'unidad'}", f"{dinero(p['median'].min())}" if len(p) else "–",
-                 f"a {dinero(p['median'].max())} · mediana {dinero(mediana)}" if len(p) else "Sin precio comparable",
-                 "balanza", P7421),
-    ]) + "</div>")
-    if len(g) == 1:
-        guia(f"Solo <b>{escape(m.at[g.index[0], 'nombre'])}</b> surte este producto: no hay otro proveedor con quien "
-             "compararlo.")
-
-    a, b = st.columns([3, 2], gap="medium")
-    with a:
-        orden = g.dropna(subset=["median"]).sort_values(["median", "art"], ascending=[True, False])
-        with tarjeta(f"Precio por {base} de cada proveedor", "cmp_p_precio",
-                     f"Precio típico (mediana) de los artículos de cada proveedor. Arriba, el más barato; la línea "
-                     f"punteada es la mediana de todos.", extra=f"{len(orden)} proveedores"):
-            if orden.empty:
-                md('<div class="lb-mas">Sin precio por unidad para comparar.</div>')
-            else:
-                leyenda_precios(resaltado=m.at[resaltar, "nombre"] if resaltar in orden.index else None)
-                et = unicas([f"<b>#{int(x.lugar)}</b>  {partir(m.at[c, 'nombre'])}" for c, x in orden.iterrows()])
-                grafica_precios(et, list(orden["median"]), base, "g_cmp_p_precio", mediana,
-                                hover=[m.at[c, "nombre"] for c in orden.index],
-                                resaltar=[i for i, c in enumerate(orden.index) if c == resaltar])
-    with b:
-        orden_a = g.loc[sorted(g.index, key=lambda c: m.at[c, "nombre"])].sort_values("art", ascending=False,
-                                                                                    kind="stable")
-        with tarjeta("Artículos de cada proveedor", "cmp_p_art", "Cuántos artículos de este producto ofrece cada uno.",
-                     extra=f"{d.ART_ID.nunique():,} artículos"):
-            barras_ranking(orden_a.art.values, [m.at[c, "nombre"] for c in orden_a.index],
-                           orden_a.art.rank(ascending=False, method="min"), "g_cmp_p_art", T["verde"], "artículos",
-                           colores=[T["acento"] if c == resaltar else T["verde"] for c in orden_a.index])
-
-    st.write("")
-    with tarjeta("Detalle por proveedor", "cmp_p_tabla", "Ordenado del precio más bajo al más alto; la diferencia es "
-                 "contra la mediana de todos los proveedores de este producto."):
-        filas = []
-        for c, x in g.sort_values(["median", "art"], ascending=[True, False], na_position="last").iterrows():
-            nombre = escape(m.at[c, "nombre"])
-            filas.append([lugar(x.lugar) if pd.notna(x.lugar) else "–",
-                          (f"<b>{nombre}</b>" if c == resaltar else nombre) + f"<small>CVE {escape(c)}</small>",
-                          f"{x.art:,}", f"{x.marcas:,}",
-                          "Nacional" if m.at[c, "nacional"] else f"{m.at[c, 'regiones']} de {len(REGIONES)}",
-                          precio_u(x["median"], base),
-                          f"{precio_u(x['min'], base)}<small>a {precio_u(x['max'], base)}</small>"
-                          if pd.notna(x["min"]) else "–", chip_dif(x.dif)])
-        tabla(["Lugar", "Proveedor", "Artículos", "Marcas", "Cobertura", "Precio mediano", "Rango de sus artículos",
-               "Frente a la mediana"], filas, numericas=(2, 3, 5, 6, 7), alto=420)
-
-
 def comparar_articulo():
     u = unicos.assign(clave=unicos.CVE + "|" + unicos.ART_ID).sort_values(["ARTICULO", "PROV_CORTO"])
     fila = u.set_index("clave")
@@ -1826,11 +1750,9 @@ def comparar_articulo():
 
 
 def comparador():
-    seccion("Comparar por producto o artículo", "Elige un producto para ver a todos los proveedores que lo surten, o un "
-            "artículo para compararlo con los del mismo producto de otros proveedores. Los precios se comparan por "
-            "kilo, litro o pieza.", "comparar")
-    modo = selector_metrica("cmp_modo", ["Producto", "Artículo"], default="Producto")
-    comparar_producto() if modo == "Producto" else comparar_articulo()
+    seccion("Comparar por artículo", "Elige un artículo para compararlo con los del mismo producto de otros "
+            "proveedores. Los precios se comparan por kilo, litro o pieza.", "comparar")
+    comparar_articulo()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1976,7 +1898,7 @@ def vista_proveedor(yo):
 # VISTA DEL PROGRAMA COMPLETO (administrador)
 # ──────────────────────────────────────────────────────────────
 def vista_programa():
-    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("comparar", "Comparar producto o artículo"),
+    indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("comparar", "Comparar por artículo"),
             ("proveedores", "Proveedores por rangos"),
             ("precios", "Rangos de precio"), ("regiones", "Cobertura")])
     seccion("Resumen", "El programa de un vistazo.", "resumen")
@@ -1993,11 +1915,12 @@ def vista_programa():
                                         n=("CVE", "nunique")).sort_values("nombre")
     l_art = [(x.nombre, f"ART. {a} · {x.prov}" + (f" y {x.n - 1} más" if x.n > 1 else ""))
              for a, x in arts.iterrows()]
-    marcas_m = unicos.groupby("MARCA").agg(art=("ART_ID", "nunique"), prov=("CVE", "nunique")).sort_index()
-    l_marca = [(mc, f"{x.art:,} art. · {plural(x.prov, 'proveedor', 'proveedores')}") for mc, x in marcas_m.iterrows()]
-    solos = prods_m[prods_m.prov == 1]
-    duenos = unicos.groupby("PROD")["PROV_CORTO"].first()
-    l_solo = [(x.nombre, duenos[p]) for p, x in solos.sort_values("nombre").iterrows()]
+    # Marcas en ranking: de la que tiene más artículos a la que tiene menos
+    marcas_m = (unicos.groupby("MARCA").agg(art=("ART_ID", "nunique"), prov=("CVE", "nunique"))
+                .reset_index().sort_values(["art", "MARCA"], ascending=[False, True]))
+    l_marca = [(f"{i}. {x.MARCA}", f"{x.art:,} art. · {plural(x.prov, 'proveedor', 'proveedores')}")
+               for i, x in enumerate(marcas_m.itertuples(), 1)]
+    lider = marcas_m.iloc[0]
     l_reg = [(f"{s} · {REGIONES[s][0]}", f"{int(reg.at[s, 'prov'])} proveedores · {int(reg.at[s, 'art']):,} art.")
              for s in REGIONES]
     listados([
@@ -2005,24 +1928,18 @@ def vista_programa():
         ("Productos", "producto", f"{unicos.PROD.nunique():,}", f"{n_comp} con dos o más proveedores", l_prod, P7420),
         ("Artículos", "articulo", f"{unicos.ART_ID.nunique():,}", f"Mediana por proveedor: {m.art.median():.0f}",
          l_art, P1255),
-        ("Marcas", "marca", f"{unicos.MARCA.nunique():,}", f"Mediana por proveedor: {m.marcas.median():.0f}",
+        ("Marcas", "marca", f"{unicos.MARCA.nunique():,}", f"Con más artículos: {escape(str(lider.MARCA))} ({lider.art:,})",
          l_marca, P7421),
-        ("Productos de un solo proveedor", "estrella", f"{len(solos):,}", f"de {len(prov_por_prod):,} productos",
-         l_solo, P627),
         ("Regiones", "mapa", f"{len(REGIONES)}", "Gerencias regionales", l_reg, P1255_60),
     ])
     rango_moda = m.rango_art.value_counts()
-    top5 = m.art.nlargest(5).sum() / m.art.sum()
     lectura_rapida([
         (P626, "rangos", f"La mayoría de los proveedores está en el rango de <b>{rango_moda.index[0]} artículos</b> "
                          f"(<b>{rango_moda.iloc[0]}</b> de {N})."),
-        (P7420, "producto", f"<b>{n_comp / len(prov_por_prod):.0%}</b> de los productos tienen dos o más proveedores."),
-        (P1255, "articulo", f"Los 5 proveedores con más artículos reúnen el <b>{top5:.0%}</b> del surtido."),
         (P7421, "mapa", f"<b>{int(m.nacional.sum())}</b> proveedores tienen cobertura nacional y "
                         f"<b>{int((~m.nacional).sum())}</b> son regionales."),
         (P627, "estrella", f"<b>{escape(prods_m.at[prods_m.prov.idxmax(), 'nombre'])}</b> "
                            f"es el producto con más proveedores: <b>{prods_m.prov.max()}</b> lo surten."),
-        (P1255_60, "precio", f"El costo unitario mediano del programa es <b>{dinero(unicos.drop_duplicates('ART_ID').COSTO_UNIT.median())}</b> por pieza, sin impuestos."),
     ])
 
     ranking_programa()
