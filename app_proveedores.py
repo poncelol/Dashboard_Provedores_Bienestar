@@ -1140,10 +1140,10 @@ def chip_pos(pos):
 
 
 def grafica_rangos_precio(filas: pd.DataFrame, clave, con_precio=True):
-    """Cada producto es una barra del precio más bajo (izquierda) al más alto (derecha) del mercado, dividida en
+    """Cada artículo es una barra del precio más bajo (izquierda) al más alto (derecha) del mercado, dividida en
     tercios bajo/medio/alto. El rombo es la mediana; el círculo, el precio del proveedor."""
     filas = filas.reset_index(drop=True)
-    etiquetas = [f"{corto(p, 30)} · {b}" for p, b in zip(filas.PRODUCTO, filas.BASE)]
+    etiquetas = unicas([escape(corto(e, 40)) for e in filas.ETIQUETA])
 
     def pos(v, mn, mx):
         return 50.0 if mx <= mn else (v - mn) / (mx - mn) * 100
@@ -1257,16 +1257,116 @@ unicos = datos.drop_duplicates(["CVE", "ART_ID"]).copy()   # un artículo cuenta
 nombre_prod = datos.groupby("PROD")["PRODUCTO"].first()
 prov_por_prod = unicos.groupby("PROD")["CVE"].nunique()
 
-# Precio por kg / L / pieza de cada proveedor en cada producto (mediana de sus artículos)
-precios = (unicos.dropna(subset=["PRECIO_U", "BASE"]).groupby(["PROD", "BASE", "CVE"])
-           .agg(precio=("PRECIO_U", "median"), arts=("ART_ID", "nunique")).reset_index())
-grp = precios.groupby(["PROD", "BASE"])
+# Palabras que no distinguen un artículo de otro (unidades, empaque, sabores, conectores)
+PALABRAS_VACIAS = set("""
+DE DEL LA EL LOS LAS CON SIN Y EN PARA POR SABOR SABORES PAQ PAQUETE PZ PZA PZS PIEZA PIEZAS GR GRS G KG ML LT LTS
+LITRO LITROS GRAMOS CAJA MASTER EXHIBIDOR BOLSA SOBRE ROLLO SUPER EXTRA TIPO MARCA
+NUEVO NUEVA ORIGINAL CLASICO CLASICA TRADICIONAL ESPECIAL PREMIUM ECONOMICO FAMILIAR INDIVIDUAL HOJAS USOS
+VAINILLA CHOCOLATE FRESA NUEZ COCO NARANJA LIMON CANELA CAJETA MANGO PINA DURAZNO MANZANA UVA GUAYABA TAMARINDO
+COMBINADO COMBINADA COMBINADAS SURTIDA SURTIDAS BLANCO BLANCA AZUL ROJO ROJA VERDE AMARILLO NEGRO
+""".split())
+# Tamaños escritos en el nombre: dos artículos con distinto tamaño no son el mismo artículo
+TAMANOS = {"CHICO": "CH", "CHICA": "CH", "MINI": "CH", "MEDIANO": "MED", "MEDIANA": "MED", "MEDIA": "MED",
+           "GRANDE": "GDE", "GIGANTE": "GDE", "JUMBO": "GDE", "LARGO": "LARGO", "LARGA": "LARGO", "CORTO": "CORTO",
+           "CORTA": "CORTO"}
+
+
+def _sin_acentos(texto) -> str:
+    return unicodedata.normalize("NFD", str(texto).upper()).encode("ascii", "ignore").decode()
+
+
+def palabras(texto) -> list:
+    """Palabras significativas de un texto, en orden: sin acentos, sin números, sin tamaños, en singular y recortadas
+    a 6 letras para que ECOLOGICA/ECOLOGICO o SEMANA/SEMANAL cuenten como la misma."""
+    salida = []
+    for w in re.findall(r"[A-Z]{3,}", _sin_acentos(texto)):
+        if w in PALABRAS_VACIAS or w in TAMANOS:
+            continue
+        w = (re.sub(r"(ES|S)$", "", w) if len(w) > 4 and w.endswith("S") else w)[:6]
+        if w not in salida:
+            salida.append(w)
+    return salida
+
+
+def tamanos(texto) -> set:
+    return {TAMANOS[w] for w in re.findall(r"[A-Z]+", _sin_acentos(texto)) if w in TAMANOS}
+
+
+def numeros(texto) -> set:
+    """Números del nombre (N°6, 10.5 LT, 30X30): en los artículos por pieza indican medida o modelo."""
+    return {float(n.replace(",", ".").replace("½", "0.5")) for n in re.findall(r"\d+(?:[.,]\d+)?|½", str(texto))}
+
+
+def similares(a, candidatos: pd.DataFrame) -> pd.Series:
+    """Marca los candidatos que son el mismo artículo que «a» dentro de su producto:
+    - su palabra principal (la primera, p. ej. CUBETA, MACHETE) coincide, salvo que sea la del producto (GALLETA);
+    - comparten una palabra que los distingue (sin contar producto, marca, proveedor ni sabores): MARIAS, AGUA…
+      Si el artículo no tiene palabras que lo distingan (CLORO CLORALUZ), basta con que el otro contenga su palabra
+      principal (BLANQUEADOR CLORO DAR);
+    - el tamaño escrito en el nombre es el mismo (CHICA, MEDIANA, GRANDE, LARGA…), y
+    - en artículos por pieza, los números del nombre son los mismos (CUBETA N°6 ≠ CUBETA N°10)."""
+    def partes(x):
+        ps, prod = palabras(x.ARTICULO), set(palabras(x.PRODUCTO))
+        quitar = prod | set(palabras(x.MARCA)) | set(palabras(x.PROV_CORTO))
+        principal = ps[0] if ps else None
+        nums = numeros(x.ARTICULO) - {float(x.GRAM), float(x.CAP)} if x.BASE == "pza" else set()
+        return (principal, principal in prod, set(ps), {w for w in ps[1:] if w not in quitar},
+                tamanos(x.ARTICULO), nums)
+    p_a, gen_a, _, n_a, t_a, num_a = partes(a)
+
+    def igual(x):
+        p_x, gen_x, todas_x, n_x, t_x, num_x = partes(x)
+        if (p_a != p_x and not (gen_a or gen_x)) or t_a != t_x or num_a != num_x:
+            return False
+        if not n_a:
+            return p_a in todas_x
+        # La mayoría de sus palabras distintivas coinciden (o unas contienen a las otras):
+        # ECOLOGICA SEMANAL = ECOLOGICA SEMANA, pero ECOLOGICA SEMANA ≠ ECOLOGICA QUINCENAL
+        comun = n_a & n_x
+        return bool(comun) and (2 * len(comun) >= len(n_a | n_x) or n_a <= n_x or n_x <= n_a)
+    return pd.Series([igual(x) for x in candidatos.itertuples()], index=candidatos.index)
+
+
+def grupos_iguales(d: pd.DataFrame) -> pd.Series:
+    """Agrupa los artículos iguales con la misma presentación (mismo producto y mismo contenido por pieza), aunque
+    sean de proveedores distintos. Un artículo entra a un grupo solo si es igual a TODOS los que ya están en él, así
+    no se encadenan (escoba ~ cepillo-escoba ~ cepillo). Devuelve el número de grupo de cada fila."""
+    grupo = {}
+    for _, cubo in d.groupby(["PROD", "BASE", "CONTENIDO"]):
+        iguales = {k: set(cubo.index[similares(x, cubo)]) for k, x in cubo.iterrows()}
+        # Primero los que más se parecen a otros: forman los grupos más completos
+        grupos = []
+        for k in sorted(cubo.index, key=lambda k_: -len(iguales[k_])):
+            destino = next((g for g in grupos if all(k in iguales[o] and o in iguales[k] for o in g)), None)
+            if destino is None:
+                grupos.append([k])
+            else:
+                destino.append(k)
+        for g in grupos:
+            for k in g:
+                grupo[k] = g[0]
+    return pd.Series(grupo).reindex(d.index)
+
+
+# Rangos de precio por ARTÍCULO: solo artículos iguales en la misma presentación (mismo gramaje o litraje por pieza),
+# así que el precio es directamente el costo unitario de una pieza. Cada proveedor cuenta una vez por grupo.
+_con_precio = unicos.dropna(subset=["PRECIO_U", "BASE", "CONTENIDO"]).copy()
+_con_precio["GRUPO"] = grupos_iguales(_con_precio)
+_con_precio["CONT_TXT"] = [presentacion(1, g, u_).replace("1 × ", "") for g, u_ in
+                           zip(_con_precio.GRAM, _con_precio.UM)]
+precios = (_con_precio.sort_values("ARTICULO").groupby(["GRUPO", "CVE"])
+           .agg(precio=("COSTO_UNIT", "median"), arts=("ART_ID", "nunique"), ARTICULO=("ARTICULO", "first"),
+                PROD=("PROD", "first"), CONT_TXT=("CONT_TXT", "first")).reset_index())
+grp = precios.groupby("GRUPO")
 precios["n_prov"] = grp["CVE"].transform("nunique")
 precios = precios[precios["n_prov"] >= 2].copy()     # el rango solo tiene sentido con dos o más proveedores
-grp = precios.groupby(["PROD", "BASE"])
+grp = precios.groupby("GRUPO")
 for c, f in [("mediana", "median"), ("minimo", "min"), ("maximo", "max")]:
     precios[c] = grp["precio"].transform(f)
+precios["BASE"] = "pza"
 precios["PRODUCTO"] = precios["PROD"].map(nombre_prod)
+precios["NOMBRE_GRUPO"] = grp["ARTICULO"].transform(lambda s_: min(s_, key=len))   # nombre para la vista general
+precios["ETIQUETA"] = precios.ARTICULO.str.title() + " · " + precios.CONT_TXT
 precios["posicion"] = [posicion_rango(p, a, b) for p, a, b in zip(precios.precio, precios.minimo, precios.maximo)]
 
 # Indicadores por proveedor
@@ -1681,48 +1781,6 @@ def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resal
     mostrar(fig, clave)
 
 
-# Palabras que no distinguen un artículo de otro (unidades, empaque, sabores, conectores)
-PALABRAS_VACIAS = set("""
-DE DEL LA EL LOS LAS CON SIN Y EN PARA POR SABOR SABORES PAQ PAQUETE PZ PZA PZS PIEZA PIEZAS GR GRS G KG ML LT LTS
-LITRO LITROS GRAMOS CAJA MASTER EXHIBIDOR BOLSA SOBRE ROLLO CHICO CHICA MEDIANO MEDIANA GRANDE MINI SUPER EXTRA
-NUEVO NUEVA ORIGINAL CLASICO CLASICA TRADICIONAL ESPECIAL PREMIUM ECONOMICO FAMILIAR INDIVIDUAL HOJAS USOS
-VAINILLA CHOCOLATE FRESA NUEZ COCO NARANJA LIMON CANELA CAJETA MANGO PINA DURAZNO MANZANA UVA GUAYABA TAMARINDO
-COMBINADO COMBINADA COMBINADAS SURTIDA SURTIDAS BLANCO BLANCA AZUL ROJO ROJA VERDE AMARILLO NEGRO
-""".split())
-
-
-def palabras(texto) -> list:
-    """Palabras significativas de un texto, en orden, sin acentos, sin números y en singular."""
-    t = unicodedata.normalize("NFD", str(texto).upper()).encode("ascii", "ignore").decode()
-    salida = []
-    for w in re.findall(r"[A-Z]{3,}", t):
-        w = re.sub(r"(ES|S)$", "", w) if len(w) > 4 and w.endswith("S") else w
-        if w not in PALABRAS_VACIAS and w not in salida:
-            salida.append(w)
-    return salida
-
-
-def similares(a, candidatos: pd.DataFrame) -> pd.Series:
-    """Marca los candidatos que son el mismo artículo que «a» dentro de su producto:
-    - su palabra principal (la primera, p. ej. CUBETA, MACHETE) coincide, salvo que sea la del producto (GALLETA), y
-    - comparten una palabra que los distingue (sin contar producto, marca, proveedor ni sabores): MARIAS, AGUA…
-    Si el artículo no tiene palabras que lo distingan (p. ej. CLORO CLORALUZ), basta con que el otro contenga
-    su palabra principal (BLANQUEADOR CLORO DAR)."""
-    def partes(x):
-        ps, prod = palabras(x.ARTICULO), set(palabras(x.PRODUCTO))
-        quitar = prod | set(palabras(x.MARCA)) | set(palabras(x.PROV_CORTO))
-        principal = ps[0] if ps else None
-        return principal, principal in prod, set(ps), {w for w in ps[1:] if w not in quitar}
-    p_a, gen_a, _, n_a = partes(a)
-
-    def igual(x):
-        p_x, gen_x, todas_x, n_x = partes(x)
-        if p_a != p_x and not (gen_a or gen_x):
-            return False
-        return bool(n_a & n_x) if n_a else p_a in todas_x
-    return pd.Series([igual(x) for x in candidatos.itertuples()], index=candidatos.index)
-
-
 def comparar_articulo():
     u = unicos.assign(clave=unicos.CVE + "|" + unicos.ART_ID).sort_values(["ARTICULO", "PROV_CORTO"])
     fila = u.set_index("clave")
@@ -1834,7 +1892,7 @@ def comparador():
 def vista_proveedor(yo):
     r = m.loc[yo]
     mio = unicos[unicos.CVE == yo]
-    mios_p = precios[precios.CVE == yo].sort_values("PRODUCTO")
+    mios_p = precios[precios.CVE == yo].sort_values(["PRODUCTO", "ETIQUETA"])
     prods = mio.groupby("PRODUCTO")["ART_ID"].nunique().sort_values(ascending=False)
     regs_mias = {x for t in mio.REGIONES for x in t}
     otros_rango = int((m.rango_art == r.rango_art).sum()) - 1
@@ -1866,11 +1924,11 @@ def vista_proveedor(yo):
                               + (f", junto con otros <b>{otros_rango}</b> proveedores." if otros_rango > 0 else "."))]
     if len(mios_p):
         bajos = int((mios_p.posicion == "Bajo").sum())
-        hall.append((P7421, "balanza", f"En <b>{bajos} de {len(mios_p)}</b> productos que surten varios proveedores, "
+        hall.append((P7421, "balanza", f"En <b>{bajos} de {len(mios_p)}</b> artículos que también ofrecen otros proveedores, "
                                        f"tu precio está en el <b>rango bajo</b> del mercado."))
     else:
-        hall.append((P7421, "balanza", "Tus productos no tienen otro proveedor en el programa: no hay rango de "
-                                       "precio para compararlos."))
+        hall.append((P7421, "balanza", "Ningún otro proveedor ofrece tus mismos artículos en la misma "
+                                       "presentación: no hay rango de precio para compararlos."))
     hall.append((P627, "mapa", f"Tienes <b>cobertura nacional</b>: llegas a las {len(REGIONES)} regiones." if r.nacional
                  else f"Llegas a <b>{len(regs_mias)} de {len(REGIONES)}</b> gerencias regionales: "
                       f"<b>{escape(', '.join(REGIONES[s][0] for s in REGIONES if s in regs_mias))}</b>."))
@@ -1894,24 +1952,26 @@ def vista_proveedor(yo):
 
     # 3. Precio dentro del rango del mercado
     seccion("Tu precio dentro del rango del mercado",
-            "Para los productos que surten dos o más proveedores: el rango va del precio más bajo al más alto por kilo, "
-            "litro o pieza. No se muestra el nombre de ningún otro proveedor.", "precios")
+            "Para tus artículos que otros proveedores ofrecen igual y en la misma presentación (mismo gramaje o "
+            "litraje): el rango va del costo unitario más bajo al más alto. No se muestra el nombre de ningún otro "
+            "proveedor.", "precios")
     if mios_p.empty:
         with tarjeta("Rangos de precio", "p_vacio"):
-            md(f'<div class="lb-mas">{svg("ok", 16)}Tus productos no tienen otro proveedor en el programa.</div>')
+            md(f'<div class="lb-mas">{svg("ok", 16)}Ningún otro proveedor ofrece tus artículos en la misma '
+               'presentación.</div>')
     else:
         a, b = st.columns([3, 2], gap="medium")
         with a:
             with tarjeta("Dónde cae tu precio", "p_graf", "Pasa el cursor para ver los precios.",
-                         extra=f"{len(mios_p):,} productos"):
+                         extra=f"{len(mios_p):,} artículos"):
                 leyenda_rangos()
                 grafica_rangos_precio(mios_p, "g_p_rangos")
         with b:
-            with tarjeta("Detalle por producto", "p_tabla", "Tu precio mediano frente al rango del mercado."):
-                filas = [[escape(x.PRODUCTO) + f"<small>{int(x.n_prov)} proveedores</small>",
+            with tarjeta("Detalle por artículo", "p_tabla", "Tu costo unitario frente al rango del mercado."):
+                filas = [[escape(x.ETIQUETA) + f"<small>{escape(x.PRODUCTO)} · {int(x.n_prov)} proveedores</small>",
                           f"{precio_u(x.minimo, x.BASE)}<small>a {precio_u(x.maximo, x.BASE)}</small>",
                           precio_u(x.precio, x.BASE), chip_pos(x.posicion)] for x in mios_p.itertuples()]
-                tabla(["Producto", "Rango del mercado", "Tu precio", "Posición"], filas, numericas=(1, 2), alto=460)
+                tabla(["Artículo", "Rango del mercado", "Tu precio", "Posición"], filas, numericas=(1, 2), alto=460)
             pos = mios_p.posicion.value_counts()
             guia(" · ".join(f"<b>{pos.get(k, 0)}</b> en rango {k.lower()}" for k in ["Bajo", "Medio", "Alto"])
                  + (f" · <b>{pos['Igual']}</b> igual al mercado" if "Igual" in pos else "")
@@ -2022,17 +2082,19 @@ def vista_programa():
             c = conteo_rangos(m.regiones, RANGOS_REG)
             barras_rangos(c[c > 0], "g_pa_reg", "proveedores")
 
-    seccion("Rangos de precio por producto", "Precio por kilo, litro o pieza de los productos que surten dos o más "
-            "proveedores: del más bajo al más alto.", "precios")
-    resumen = (precios.groupby(["PROD", "BASE"]).agg(PRODUCTO=("PRODUCTO", "first"), n_prov=("CVE", "nunique"),
-                                                     minimo=("minimo", "first"), mediana=("mediana", "first"),
-                                                     maximo=("maximo", "first")).reset_index())
+    seccion("Rangos de precio por artículo", "Costo unitario de los artículos que ofrecen dos o más proveedores "
+            "igual y en la misma presentación: del más bajo al más alto.", "precios")
+    resumen = (precios.groupby("GRUPO").agg(NOMBRE=("NOMBRE_GRUPO", "first"), CONT_TXT=("CONT_TXT", "first"),
+                                            PRODUCTO=("PRODUCTO", "first"), BASE=("BASE", "first"),
+                                            n_prov=("CVE", "nunique"), minimo=("minimo", "first"),
+                                            mediana=("mediana", "first"), maximo=("maximo", "first")).reset_index())
+    resumen["ETIQUETA"] = resumen.NOMBRE.str.title() + " · " + resumen.CONT_TXT
     a, b = st.columns([3, 2], gap="medium")
     with a:
-        with tarjeta("Productos más disputados", "pr_graf", "Los 15 con más proveedores; el rombo es la mediana.",
-                     extra=f"{len(resumen):,} productos con rango"):
+        with tarjeta("Artículos más disputados", "pr_graf", "Los 15 con más proveedores; el rombo es la mediana.",
+                     extra=f"{len(resumen):,} artículos con rango"):
             leyenda_rangos(con_precio=False)
-            top = resumen.sort_values(["n_prov", "PRODUCTO"], ascending=[False, True]).head(15)
+            top = resumen.sort_values(["n_prov", "ETIQUETA"], ascending=[False, True]).head(15)
             grafica_rangos_precio(top, "g_pr_rangos", con_precio=False)
     with b:
         with tarjeta("Artículos por rango de costo unitario", "pr_costo", "Todo el programa, por pieza sin impuestos.",
@@ -2041,10 +2103,11 @@ def vista_programa():
                           "artículos")
     st.write("")
     with tarjeta("Todos los rangos de precio", "pr_tabla", "Amplitud = cuántas veces el precio más alto es el más bajo."):
-        filas = [[escape(x.PRODUCTO), f"{x.n_prov}", precio_u(x.minimo, x.BASE), precio_u(x.mediana, x.BASE),
+        filas = [[escape(x.ETIQUETA) + f"<small>{escape(x.PRODUCTO)}</small>", f"{x.n_prov}",
+                  precio_u(x.minimo, x.BASE), precio_u(x.mediana, x.BASE),
                   precio_u(x.maximo, x.BASE), f"{x.maximo / x.minimo:.1f}×"]
-                 for x in resumen.sort_values("PRODUCTO").itertuples()]
-        tabla(["Producto", "Proveedores", "Más bajo", "Mediana", "Más alto", "Amplitud"], filas,
+                 for x in resumen.sort_values(["PRODUCTO", "ETIQUETA"]).itertuples()]
+        tabla(["Artículo", "Proveedores", "Más bajo", "Mediana", "Más alto", "Amplitud"], filas,
               numericas=(1, 2, 3, 4, 5), alto=420)
 
     seccion("Cobertura regional", "Proveedores y artículos que llegan a cada gerencia regional.", "regiones")
