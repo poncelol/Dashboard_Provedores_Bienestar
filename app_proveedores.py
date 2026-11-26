@@ -1266,19 +1266,15 @@ def grafica_top(col, unidad, clave, n, resaltar=None, con_nombres=False, etiquet
         textfont=dict(color=T["texto2"], size=11),
         customdata=[globo_proveedor(c, col, unidad, rk, resaltar, con_nombres, etiqueta) for c in claves],
         hovertemplate="%{customdata}<extra></extra>"))
-    med = s.median()
-    fig.add_vline(x=med, line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana {med:,.0f}",
-                  annotation_position="bottom right", annotation_font=dict(color=T["texto3"], size=11))
     estilo(fig, max(260, 28 * len(claves) + 60))
     fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
     fig.update_xaxes(visible=False, range=[0, max(max(vals), 1) * 1.18])
-    fig.update_layout(margin=dict(t=4, b=24, r=8), bargap=.25)
+    fig.update_layout(margin=dict(t=4, b=4, r=8), bargap=.25)
     mostrar(fig, clave)
     arriba = s.iloc[:n].sum()
     guia(("Todos los proveedores suman" if n >= N else f"Los {n} primeros lugares suman")
          + f" <b>{arriba:,} {unidad}</b>"
          + (f": el <b>{arriba / s.sum():.0%}</b> del programa." if n < N else ".")
-         + f" La línea punteada es la mediana ({med:,.0f})."
          + (f" Tu lugar es el <b>#{int(rk[resaltar])}</b>; se muestra al final." if fuera and not con_nombres else "")
          + (f" <b>{escape(m.at[resaltar, 'nombre'])}</b> está en el lugar <b>#{int(rk[resaltar])}</b>; se muestra al "
             f"final." if fuera and con_nombres else "")
@@ -1830,11 +1826,10 @@ def ranking_programa():
     orden_por = st.session_state.get("orden_prov") or "Artículos"
     col_orden = ORDEN_PROV[orden_por]
     with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato: nombre, CVE, razón social, producto, marca, "
-                 "región o artículo; el buscador encuentra a todos aunque elijas un top. Cada botón muestra su indicador "
-                 "de mayor a menor.", extra=[f"{N} proveedores", f"Orden: {orden_por.lower()}"]):
+                 "región o artículo. Al hacer clic en el buscador aparecen sugerencias por rubro. Cada botón muestra "
+                 "su indicador de mayor a menor.", extra=[f"{N} proveedores", f"Orden: {orden_por.lower()}"]):
         st.segmented_control("Ordenar por", list(ORDEN_PROV), default="Artículos", key="orden_prov",
                              label_visibility="collapsed")
-        n_ver = selector_top("top_tabla_prov")
         orden = m.sort_values([f"rk_{col_orden}", "nombre"]) if col_orden else m.sort_values("nombre")
         # Cada botón muestra solo su apartado: el proveedor y la columna de ese indicador (por nombre: sus artículos)
         col_ver = col_orden or "art"
@@ -1855,7 +1850,7 @@ def ranking_programa():
             "Región": (desc(pd.Series({REGIONES[s_][0]: int(reg.at[s_, "prov"]) for s_ in REGIONES})), "prov."),
             "Artículo": (desc(unicos.groupby("ARTICULO")["CVE"].nunique()), "prov."),
         }
-        tabla(cab, filas, numericas=(1,), alto=420, visibles=n_ver,
+        tabla(cab, filas, numericas=(1,), alto=420,
               buscar="Buscar proveedor: nombre, CVE, producto, marca, región o artículo…",
               busca_extra=[" | ".join(BUSCA.loc[cve]) for cve in orden.index], sugerencias=sugerencias)
 
