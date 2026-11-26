@@ -2287,27 +2287,6 @@ def secciones_compras(yo=None):
                                for x in sin.itertuples()])
 
 
-def seccion_altas():
-    """Todos los artículos del programa con su fecha de alta, para consultar y descargar (vista del programa)."""
-    seccion("Artículos y fecha de alta", "Cada artículo del programa con la fecha en que se dio de alta en el "
-            "catálogo, su presupuesto y lo comprado. Descárgalo en Excel.", "altas")
-    d = compras.sort_values("FECHA_ALTA", ascending=False)
-    with tarjeta("Fecha de alta por artículo", "al_tabla", "Del más reciente al más antiguo; escribe para filtrar.",
-                 extra=[f"{int((d.GRUPO == NUEVOS).sum()):,} con menos de 1 año",
-                        f"{int((d.GRUPO == ANTIGUOS).sum()):,} con más de 1 año"]):
-        boton_descarga(d, "dl_altas", "articulos_fecha_alta")
-        filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)} · {escape(x.PROV_CORTO)}</small>",
-                  escape(x.PRODUCTO), f"{fecha_corta(x.FECHA_ALTA)}<small>{antiguedad_txt(x.DIAS)}</small>",
-                  dinero(x.PEDIDO), dinero(x.SURTIDO), pct_txt(x.PCT)] for x in d.itertuples()]
-        tabla(["Artículo", "Producto", "Alta", "Presupuesto", "Comprado", "% comprado"], filas,
-              numericas=(3, 4, 5), alto=480, buscar="Buscar artículo, clave, proveedor, producto o marca…",
-              busca_extra=[f"{x.MARCA} {x.PROVEEDOR} CVE {x.CVE} {x.GRUPO} {x.ESTADO}" for x in d.itertuples()],
-              sugerencias={"Proveedor": (d.groupby("PROV_CORTO")["ART_ID"].nunique().sort_values(ascending=False),
-                                         "art."),
-                           "Producto": (d.groupby("PRODUCTO")["ART_ID"].nunique().sort_values(ascending=False),
-                                        "art.")})
-
-
 # ──────────────────────────────────────────────────────────────
 # VISTA DE UN PROVEEDOR
 # ──────────────────────────────────────────────────────────────
@@ -2469,7 +2448,7 @@ def vista_programa():
             ("proveedores", "Proveedores por rangos"),
             ("precios", "Rangos de precio"), ("regiones", "Cobertura")]
            + ([("compras", "Presupuesto y compras"), ("antiguedad", "Más y menos comprados"),
-               ("sincompras", "Sin compras"), ("altas", "Fecha de alta")] if compras is not None else []))
+               ("sincompras", "Sin compras")] if compras is not None else []))
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
 
@@ -2566,7 +2545,6 @@ def vista_programa():
 
     if compras is not None:
         secciones_compras()
-        seccion_altas()
     else:
         st.write("")
         st.info("Para ver presupuesto contra compras, antigüedad y fecha de alta de los artículos falta "
