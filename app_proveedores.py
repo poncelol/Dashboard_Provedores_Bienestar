@@ -2572,26 +2572,35 @@ def vista_programa():
                                             n_prov=("CVE", "nunique"), minimo=("minimo", "first"),
                                             mediana=("mediana", "first"), maximo=("maximo", "first")).reset_index())
     resumen["ETIQUETA"] = resumen.NOMBRE.str.title() + " · " + resumen.CONT_TXT
-    a, b = st.columns([3, 2], gap="medium")
-    with a:
-        with tarjeta("Artículos más disputados", "pr_graf", "Los 15 con más proveedores; el rombo es la mediana.",
-                     extra=f"{len(resumen):,} artículos con rango"):
-            leyenda_rangos(con_precio=False)
-            top = resumen.sort_values(["n_prov", "ETIQUETA"], ascending=[False, True]).head(15)
-            grafica_rangos_precio(top, "g_pr_rangos", con_precio=False)
-    with b:
-        with tarjeta("Artículos por rango de costo unitario", "pr_costo", "Todo el programa, por pieza sin impuestos.",
-                     extra=f"{unicos.ART_ID.nunique():,} artículos"):
-            barras_rangos(conteo_rangos(unicos.drop_duplicates("ART_ID").COSTO_UNIT, RANGOS_COSTO), "g_pr_costo",
-                          "artículos")
+    with tarjeta("Artículos más disputados", "pr_graf", "Los 15 con más proveedores; el rombo es la mediana.",
+                 extra=f"{len(resumen):,} artículos con rango"):
+        leyenda_rangos(con_precio=False)
+        top = resumen.sort_values(["n_prov", "ETIQUETA"], ascending=[False, True]).head(15)
+        grafica_rangos_precio(top, "g_pr_rangos", con_precio=False)
     st.write("")
-    with tarjeta("Todos los rangos de precio", "pr_tabla", "Amplitud = cuántas veces el precio más alto es el más bajo."):
+    with tarjeta("Todos los rangos de precio", "pr_tabla", "Busca por artículo, producto o proveedor. Amplitud = "
+                 "cuántas veces el precio más alto es el más bajo.", extra=f"{len(resumen):,} artículos"):
+        ordenado = resumen.sort_values(["PRODUCTO", "ETIQUETA"])
+        # Proveedores y artículos de cada grupo: no se ven en la tabla, pero el buscador los encuentra
+        provs_g = precios.groupby("GRUPO").CVE.agg(lambda s_: sorted(set(s_), key=lambda c: m.at[c, "nombre"]))
+        arts_g = precios.groupby("GRUPO").ARTICULO.agg(lambda s_: " | ".join(sorted(set(s_))))
         filas = [[escape(x.ETIQUETA) + f"<small>{escape(x.PRODUCTO)}</small>", f"{x.n_prov}",
                   precio_u(x.minimo, x.BASE), precio_u(x.mediana, x.BASE),
                   precio_u(x.maximo, x.BASE), f"{x.maximo / x.minimo:.1f}×"]
-                 for x in resumen.sort_values(["PRODUCTO", "ETIQUETA"]).itertuples()]
+                 for x in ordenado.itertuples()]
+        busca = [" | ".join(f"{m.at[c, 'nombre']} {m.at[c, 'razon']} CVE {c}" for c in provs_g[x.GRUPO])
+                 + " | " + arts_g[x.GRUPO] for x in ordenado.itertuples()]
+        prov_cuenta = precios.groupby("CVE").GRUPO.nunique()
+        sugerencias = {
+            "Producto": (ordenado.groupby("PRODUCTO").size().sort_values(ascending=False), "art."),
+            "Proveedor": (pd.Series({m.at[c, "nombre"]: int(v) for c, v in prov_cuenta.items()})
+                          .sort_values(ascending=False), "art."),
+            "Artículo": (ordenado.groupby(ordenado.NOMBRE.str.title()).n_prov.max().sort_values(ascending=False),
+                         "prov."),
+        }
         tabla(["Artículo", "Proveedores", "Más bajo", "Mediana", "Más alto", "Amplitud"], filas,
-              numericas=(1, 2, 3, 4, 5), alto=420)
+              numericas=(1, 2, 3, 4, 5), alto=420, buscar="Buscar artículo, producto o proveedor…",
+              busca_extra=busca, sugerencias=sugerencias)
 
     seccion("Cobertura regional", "Proveedores y artículos que llegan a cada gerencia regional.", "regiones")
     a, b = st.columns([3, 2], gap="medium")
