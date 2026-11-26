@@ -798,17 +798,19 @@ def guia(texto):
     md(f'<div class="guia">{svg("idea", 16)}<span>{texto}</span></div>')
 
 
-def tabla(encabezados, filas, numericas=(), alto=None, buscar=None, busca_extra=None, sugerencias=None):
+def tabla(encabezados, filas, numericas=(), alto=None, buscar=None, busca_extra=None, sugerencias=None, visibles=None):
     """buscar: texto de ayuda del buscador que filtra los renglones mientras se escribe (sin él, no hay buscador).
     busca_extra: por renglón, texto que no se ve pero también se busca (claves, razón social, productos…).
-    sugerencias: {sección: Serie valor -> cifra} o {sección: (Serie, unidad)}; se ofrecen al enfocar el buscador."""
+    sugerencias: {sección: Serie valor -> cifra} o {sección: (Serie, unidad)}; se ofrecen al enfocar el buscador.
+    visibles: solo se ven los primeros n renglones; los demás quedan ocultos, pero el buscador los encuentra."""
     th = "".join(f'<th class="{"num" if i in numericas else ""}">{h}</th>' for i, h in enumerate(encabezados))
     extra = busca_extra or [""] * len(filas)
     tr = "".join(
-        (f'<tr data-busca="{escape(x)}">' if x else "<tr>")
+        "<tr" + (f' data-busca="{escape(x)}"' if x else "")
+        + (" data-extra hidden" if visibles is not None and k >= visibles else "") + ">"
         + "".join(f'<td class="{"num" if i in numericas else ""} {"fuerte" if i == 0 else ""}">{v}</td>'
                   for i, v in enumerate(fila)) + "</tr>"
-        for fila, x in zip(filas, extra))
+        for k, (fila, x) in enumerate(zip(filas, extra)))
     if buscar:
         tr += f'<tr class="vacio" hidden><td colspan="{len(encabezados)}">Sin coincidencias.</td></tr>'
     marco = f' scroll" style="max-height:{alto}px' if alto else ""
@@ -969,7 +971,7 @@ BUSCADOR_JS = r"""<script>
       // Texto visible del renglón más el texto oculto data-busca; cada palabra debe aparecer en algún lado
       const texto = norm(r.textContent + " " + (r.dataset.busca || ""));
       const ok = palabras.every(p => texto.includes(p));
-      r.hidden = !ok;
+      r.hidden = !ok || (!q && r.dataset.extra !== undefined);
       n += ok;
     });
     caja_b.querySelector(".vacio").hidden = n > 0;
@@ -1198,9 +1200,16 @@ def grafica_todos(col, unidad, clave, resaltar=None, con_nombres=False, etiqueta
     if col == "regiones":
         grafica_regiones(clave, resaltar, con_nombres, etiqueta)
         return
-    top = st.segmented_control("Cuántos ver", ["Top 10", "Top 20", "Top 30"], default="Top 10",
-                               key=f"top_{clave}", label_visibility="collapsed") or "Top 10"
-    grafica_top(col, unidad, clave, int(top.split()[1]), resaltar, con_nombres, etiqueta)
+    grafica_top(col, unidad, clave, selector_top(f"top_{clave}"), resaltar, con_nombres, etiqueta)
+
+
+TOPS = ["Top 10", "Top 20", "Top 30", "Todos"]
+
+
+def selector_top(clave):
+    """Botones Top 10 / 20 / 30 / Todos; devuelve cuántos mostrar."""
+    v = st.segmented_control("Cuántos ver", TOPS, default="Top 10", key=clave, label_visibility="collapsed") or "Top 10"
+    return N if v == "Todos" else int(v.split()[1])
 
 
 def globo_proveedor(c, col, unidad, rk, resaltar, con_nombres, etiqueta):
@@ -1266,8 +1275,10 @@ def grafica_top(col, unidad, clave, n, resaltar=None, con_nombres=False, etiquet
     fig.update_layout(margin=dict(t=4, b=24, r=8), bargap=.25)
     mostrar(fig, clave)
     arriba = s.iloc[:n].sum()
-    guia(f"Los {min(n, N)} primeros lugares suman <b>{arriba:,} {unidad}</b>: el "
-         f"<b>{arriba / s.sum():.0%}</b> del programa. La línea punteada es la mediana ({med:,.0f})."
+    guia(("Todos los proveedores suman" if n >= N else f"Los {n} primeros lugares suman")
+         + f" <b>{arriba:,} {unidad}</b>"
+         + (f": el <b>{arriba / s.sum():.0%}</b> del programa." if n < N else ".")
+         + f" La línea punteada es la mediana ({med:,.0f})."
          + (f" Tu lugar es el <b>#{int(rk[resaltar])}</b>; se muestra al final." if fuera and not con_nombres else "")
          + (f" <b>{escape(m.at[resaltar, 'nombre'])}</b> está en el lugar <b>#{int(rk[resaltar])}</b>; se muestra al "
             f"final." if fuera and con_nombres else "")
@@ -1819,17 +1830,20 @@ def ranking_programa():
     orden_por = st.session_state.get("orden_prov") or "Artículos"
     col_orden = ORDEN_PROV[orden_por]
     with tarjeta("Buscar proveedor", "busca", "Escribe cualquier dato: nombre, CVE, razón social, producto, marca, "
-                 "región o artículo. Al hacer clic en el buscador aparecen sugerencias por rubro. Los botones ordenan "
-                 "la tabla de mayor a menor.", extra=[f"{N} proveedores", f"Orden: {orden_por.lower()}"]):
+                 "región o artículo; el buscador encuentra a todos aunque elijas un top. Cada botón muestra su indicador "
+                 "de mayor a menor.", extra=[f"{N} proveedores", f"Orden: {orden_por.lower()}"]):
         st.segmented_control("Ordenar por", list(ORDEN_PROV), default="Artículos", key="orden_prov",
                              label_visibility="collapsed")
+        n_ver = selector_top("top_tabla_prov")
         orden = m.sort_values([f"rk_{col_orden}", "nombre"]) if col_orden else m.sort_values("nombre")
-        filas = [[escape(x.nombre) + f"<small>CVE {escape(cve)}</small>"]
-                 + [f"{x[c]:,}{lugar(x[f'rk_{c}'])}" for c, *_ in METRICAS.values()] for cve, x in orden.iterrows()]
-        # La columna por la que se ordena va en color de acento con su flecha
-        cab = [f'<span class="ordenada">{h}{svg("flecha", 12)}</span>'
-               if (h == "Proveedor") == (col_orden is None) and (col_orden is None or METRICAS[h][0] == col_orden)
-               else h for h in ["Proveedor", *list(METRICAS)]]
+        # Cada botón muestra solo su apartado: el proveedor y la columna de ese indicador (por nombre: sus artículos)
+        col_ver = col_orden or "art"
+        et_ver = next(e for e, (c, *_) in METRICAS.items() if c == col_ver)
+        filas = [[escape(x.nombre) + f"<small>CVE {escape(cve)}</small>", f"{x[col_ver]:,}{lugar(x[f'rk_{col_ver}'])}"]
+                 for cve, x in orden.iterrows()]
+        flecha = f'{svg("flecha", 12)}</span>'
+        cab = ([f'<span class="ordenada">Proveedor{flecha}', et_ver] if col_orden is None
+               else ["Proveedor", f'<span class="ordenada">{et_ver}{flecha}'])
 
         def desc(serie):
             return serie.sort_values(ascending=False)
@@ -1841,7 +1855,7 @@ def ranking_programa():
             "Región": (desc(pd.Series({REGIONES[s_][0]: int(reg.at[s_, "prov"]) for s_ in REGIONES})), "prov."),
             "Artículo": (desc(unicos.groupby("ARTICULO")["CVE"].nunique()), "prov."),
         }
-        tabla(cab, filas, numericas=(1, 2, 3, 4), alto=420,
+        tabla(cab, filas, numericas=(1,), alto=420, visibles=n_ver,
               buscar="Buscar proveedor: nombre, CVE, producto, marca, región o artículo…",
               busca_extra=[" | ".join(BUSCA.loc[cve]) for cve in orden.index], sugerencias=sugerencias)
 
