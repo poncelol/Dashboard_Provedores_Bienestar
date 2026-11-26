@@ -1351,7 +1351,8 @@ def leyenda_rangos(con_precio=True):
 
 
 def mapa(valor: dict, textos: dict, binario: bool, clave, alto=430):
-    """Estados por gerencia regional. binario: 1 = presente (acento), 0 = ausente (gris); si no, escala de intensidad."""
+    """Estados por gerencia regional. binario: 1 = presente (acento), 0 = ausente (gris); si no, escala de intensidad
+    del valor más bajo (casi transparente) al más alto (color completo), para que las diferencias se noten."""
     gj = geo_estados()
     if not gj:
         st.caption(f"No encontré {MAPA.name}: el mapa no se puede dibujar.")
@@ -1364,9 +1365,10 @@ def mapa(valor: dict, textos: dict, binario: bool, clave, alto=430):
         z.append(valor.get(s, 0) if s else (0 if binario else None))
         hover.append(f"<b>{s} · {REGIONES[s][0]}</b><br>{e}<br>{textos[s]}" if s else f"<b>{e}</b><br>Sin gerencia regional")
     escala = [[0, T["otros"]], [1, T["acento"]]] if binario else [[0, alfa(T["acento"], .12)], [1, T["acento"]]]
+    bajo, alto_v = (0, 1) if binario else (min(valor.values()), max(max(valor.values()), 1))
     fig = go.Figure(go.Choropleth(
-        geojson=gj, featureidkey="properties.name", locations=locs, z=z, colorscale=escala, zmin=0,
-        zmax=1 if binario else max(max(valor.values()), 1), showscale=False, marker_line_color=T["card"],
+        geojson=gj, featureidkey="properties.name", locations=locs, z=z, colorscale=escala, zmin=bajo,
+        zmax=alto_v if alto_v > bajo else bajo + 1, showscale=False, marker_line_color=T["card"],
         marker_line_width=1, customdata=hover, hovertemplate="%{customdata}<extra></extra>"))
     centros = centros_region()
     sig = [s for s in REGIONES if s in centros]
@@ -2594,15 +2596,20 @@ def vista_programa():
     seccion("Cobertura regional", "Proveedores y artículos que llegan a cada gerencia regional.", "regiones")
     a, b = st.columns([3, 2], gap="medium")
     with a:
-        with tarjeta("Proveedores por región", "pc_mapa", "Más intenso = más proveedores."):
-            mapa({s: int(reg.at[s, "prov"]) for s in REGIONES},
-                 {s: f"{int(reg.at[s, 'prov'])} proveedores · {int(reg.at[s, 'art']):,} artículos" for s in REGIONES},
+        # Región con más artículos = color completo; entre menos artículos, más transparente
+        lugar_art = reg.art.rank(ascending=False, method="min")
+        with tarjeta("Artículos por región", "pc_mapa", "Color más intenso = más artículos; entre menos artículos, "
+                     "más transparente.", extra=f"{len(REGIONES)} regiones"):
+            mapa({s: int(reg.at[s, "art"]) for s in REGIONES},
+                 {s: f"Lugar #{int(lugar_art[s])} de {len(REGIONES)}<br><b>{int(reg.at[s, 'art']):,} artículos</b> · "
+                     f"{int(reg.at[s, 'prov'])} proveedores" for s in REGIONES},
                  False, "g_pc_mapa")
     with b:
-        with tarjeta("Detalle por región", "pc_tabla", "Los nacionales cuentan en todas."):
-            filas = [[f"<b>{s}</b> · {escape(REGIONES[s][0])}", f"{int(x.prov)}", f"{int(x.art):,}"]
-                     for s, x in reg.sort_values("prov", ascending=False).iterrows()]
-            tabla(["Región", "Proveedores", "Artículos"], filas, numericas=(1, 2))
+        with tarjeta("Detalle por región", "pc_tabla", "De la región con más artículos a la que tiene menos. Los "
+                     "nacionales cuentan en todas."):
+            filas = [[f"{lugar(lugar_art[s])} <b>{s}</b> · {escape(REGIONES[s][0])}", f"{int(x.art):,}", f"{int(x.prov)}"]
+                     for s, x in reg.sort_values(["art", "prov"], ascending=False).iterrows()]
+            tabla(["Región", "Artículos", "Proveedores"], filas, numericas=(1, 2))
 
     if compras is not None:
         secciones_compras()
