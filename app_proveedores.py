@@ -9,7 +9,8 @@ proveedor. Con el código de administrador se ve todo el programa y se puede abr
 Ejecutar:   streamlit run app_proveedores.py
 
 Secretos (.streamlit/secrets.toml en tu computadora, o "Settings > Secrets" en Streamlit Community Cloud):
-  [onedrive]               vínculo del Excel (se vuelve a descargar cada `minutos`)
+  [onedrive]               link: vínculo del Excel del programa (se vuelve a descargar cada `minutos`)
+                           link2, link3: catálogo de artículos (fecha de alta) e importe pedido / surtido
   [acceso]                 admin = "código"  y  [acceso.proveedores]  "CVE" = "código"
   Sin [acceso] el tablero abre directo en modo administrador (útil para pruebas en tu computadora).
   Los códigos se generan con:   python generar_codigos.py
@@ -24,10 +25,12 @@ import unicodedata
 from contextlib import contextmanager
 from datetime import datetime
 from html import escape
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -48,6 +51,12 @@ NOMBRES_EXCEL = ["PROGRAMA DE ABASTO RURAL 2026.xlsx", "PROGRAMA_DE_ABASTO_RURAL
 ARCHIVOS = [d / n for d in (CARPETA, CARPETA.parent / "Dashboard") for n in NOMBRES_EXCEL]
 ARCHIVO = next((a for a in ARCHIVOS if a.exists()), ARCHIVOS[0])
 MAPA = CARPETA / "mexico_estados.json"
+# Excel complementarios: catálogo de artículos (fecha de alta) e importe pedido / surtido. Van en [onedrive] como
+# link2 y link3 (en cualquier orden: el tablero reconoce cada archivo por su contenido). Sin vínculo, o si falla la
+# descarga, se usan estas copias locales junto a app_proveedores.py.
+LINKS_EXTRA = ["link2", "link3"]
+LOCALES_EXTRA = ["ReporteDeArticulos*.xls*", "ARTICULOS VIGENTES*.xls*"]
+NUEVOS, ANTIGUOS, SIN_FECHA = "Menos de 1 año", "Más de 1 año", "Sin fecha de alta"
 ADMIN = "__admin__"
 MAX_INTENTOS, ESPERA_SEG = 5, 120   # tras 5 códigos equivocados se espera 2 minutos
 
@@ -277,9 +286,10 @@ def url_descarga(link: str) -> str:
     return f"https://api.onedrive.com/v1.0/shares/{codigo_share(link)}/root/content"
 
 
-@st.cache_data(max_entries=2, show_spinner="Descargando el Excel de OneDrive…")
-def descargar_excel(link: str, bloque: int):
-    """`bloque` cambia cada N minutos, así el Excel se vuelve a bajar solo."""
+@st.cache_data(max_entries=6, show_spinner="Descargando el Excel de OneDrive…")
+def descargar_excel(link: str, bloque: int, html: bool = False):
+    """`bloque` cambia cada N minutos, así el Excel se vuelve a bajar solo.
+    html=True acepta también los reportes que el sistema exporta como tabla HTML con extensión .xls."""
     cfg = secreto("onedrive")
     encabezados = {"User-Agent": "Mozilla/5.0"}
     if all(cfg.get(k) for k in ("tenant_id", "client_id", "client_secret")):
@@ -295,9 +305,88 @@ def descargar_excel(link: str, bloque: int):
         url = url_descarga(link)
     r = requests.get(url, headers=encabezados, timeout=60, allow_redirects=True)
     r.raise_for_status()
-    if not r.content.startswith(b"PK"):
+    es_html = html and b"<table" in r.content[:4000].lower()
+    if not (r.content.startswith(b"PK") or es_html):
         raise ValueError("OneDrive no devolvió un Excel: revisa que el vínculo permita ver el archivo.")
     return r.content, ahora()
+
+
+class _TablaHTML(HTMLParser):
+    """Renglones de una tabla HTML (así exporta el sistema el Catálogo de Artículos). colspan deja celdas vacías
+    para que cada dato quede bajo su encabezado."""
+
+    def __init__(self):
+        super().__init__()
+        self.filas, self._fila, self._celda, self._span = [], None, None, 1
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._fila = []
+        elif tag in ("td", "th") and self._fila is not None:
+            self._celda = []
+            try:
+                self._span = int(dict(attrs).get("colspan") or 1)
+            except ValueError:
+                self._span = 1
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._celda is not None:
+            self._fila += [" ".join("".join(self._celda).split())] + [""] * (self._span - 1)
+            self._celda = None
+        elif tag == "tr" and self._fila is not None:
+            self.filas.append(self._fila)
+            self._fila = None
+
+    def handle_data(self, data):
+        if self._celda is not None:
+            self._celda.append(data)
+
+
+def _encabezado(v) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFD", str(v).upper()).encode("ascii", "ignore").decode()).strip()
+
+
+@st.cache_data(max_entries=8, show_spinner="Leyendo fechas de alta y compras…")
+def leer_extra(contenido: bytes):
+    """Reconoce un Excel complementario por sus encabezados. Devuelve (altas, compras):
+    altas: Serie ART_ID -> fecha de alta (Catálogo de Artículos) o None;
+    compras: lista con un DataFrame por hoja (índice ART_ID; PEDIDO y SURTIDO)."""
+    if contenido.startswith(b"PK"):
+        xls = pd.ExcelFile(io.BytesIO(contenido))
+        hojas = [pd.read_excel(xls, sheet_name=h, header=None, dtype=object) for h in xls.sheet_names]
+    else:
+        lector = _TablaHTML()
+        for cod in ("utf-8", "latin-1"):
+            try:
+                lector.feed(contenido.decode(cod))
+                break
+            except UnicodeDecodeError:
+                continue
+        ancho = max((len(f) for f in lector.filas), default=0)
+        hojas = [pd.DataFrame([f + [""] * (ancho - len(f)) for f in lector.filas])]
+    altas, compras_ = None, []
+    for h in hojas:
+        for i in range(min(40, len(h))):
+            fila = [_encabezado(v) for v in h.iloc[i].fillna("")]
+            cuerpo = h.iloc[i + 1:]
+            if "FECHA ALTA" in fila and "ARTICULO" in fila:
+                d = pd.DataFrame({"ART_ID": clave_texto(cuerpo.iloc[:, fila.index("ARTICULO")]).values,
+                                  "FECHA": pd.to_datetime(cuerpo.iloc[:, fila.index("FECHA ALTA")],
+                                                          errors="coerce").values})
+                altas = d.dropna().drop_duplicates("ART_ID").set_index("ART_ID")["FECHA"]
+                break
+            if "IMPORTE PEDIDO" in fila:
+                c_id = next((fila.index(c) for c in ("ART.", "ART", "CLAVE ARTICULO") if c in fila), None)
+                c_s = next((j for j, c in enumerate(fila) if c.startswith("IMPORTE SURTIDO")), None)
+                if c_id is not None and c_s is not None:
+                    d = pd.DataFrame({
+                        "ART_ID": clave_texto(cuerpo.iloc[:, c_id]).values,
+                        "PEDIDO": pd.to_numeric(cuerpo.iloc[:, fila.index("IMPORTE PEDIDO")], errors="coerce").values,
+                        "SURTIDO": pd.to_numeric(cuerpo.iloc[:, c_s], errors="coerce").values}).dropna(subset=["ART_ID"])
+                    # Un artículo con varias negociaciones repite su importe en cada renglón: cuenta una sola vez
+                    compras_.append(d.groupby("ART_ID")[["PEDIDO", "SURTIDO"]].max().fillna(0))
+                break
+    return altas, compras_
 
 
 def motivo(e: Exception) -> str:
@@ -1224,10 +1313,10 @@ def mapa(valor: dict, textos: dict, binario: bool, clave, alto=430):
 # DATOS
 # ──────────────────────────────────────────────────────────────
 cfg_od = secreto("onedrive")
+bloque = int(ahora().timestamp() // (max(1, int(cfg_od.get("minutos", 10))) * 60))
 if cfg_od.get("link"):
-    minutos = max(1, int(cfg_od.get("minutos", 10)))
     try:
-        contenido, descargado = descargar_excel(cfg_od["link"], int(ahora().timestamp() // (minutos * 60)))
+        contenido, descargado = descargar_excel(cfg_od["link"], bloque)
         origen = f"OneDrive · {descargado:%H:%M}"
     except Exception as e:  # noqa: BLE001
         if not ARCHIVO.exists():
@@ -1407,6 +1496,55 @@ prods_m = unicos.groupby("PROD").agg(nombre=("PRODUCTO", "first"), prov=("CVE", 
 exp_reg =unicos[["CVE", "ART_ID", "REGIONES"]].explode("REGIONES").dropna()
 reg = exp_reg.groupby("REGIONES").agg(prov=("CVE", "nunique"), art=("ART_ID", "nunique")) \
     .reindex(list(REGIONES), fill_value=0)
+
+
+# ──────────────────────────────────────────────────────────────
+# FECHA DE ALTA Y COMPRAS POR ARTÍCULO (Excel complementarios)
+# ──────────────────────────────────────────────────────────────
+def leer_complementos():
+    """(altas, hojas de compras, avisos). Primero los vínculos link2/link3; de lo que falte, las copias locales."""
+    altas, hojas, avisos = None, [], []
+    # Cada fuente se lee solo si hace falta (la copia local no se abre si OneDrive ya trajo los dos archivos)
+    fuentes = [(f"OneDrive ({k})", lambda k_=k: descargar_excel(cfg_od[k_], bloque, html=True)[0])
+               for k in LINKS_EXTRA if cfg_od.get(k)]
+    fuentes += [(a.name, lambda a_=a: a_.read_bytes()) for p in LOCALES_EXTRA for a in sorted(CARPETA.glob(p))]
+    for nombre, fuente in fuentes:
+        if altas is not None and hojas:
+            break
+        try:
+            a_, h_ = leer_extra(fuente())
+        except Exception as e:  # noqa: BLE001
+            avisos.append(f"{nombre}: {motivo(e)}")
+            continue
+        altas = altas if altas is not None else a_
+        hojas = hojas or h_
+    return altas, hojas, avisos
+
+
+def armar_compras(altas: pd.Series, imp: pd.DataFrame) -> pd.DataFrame:
+    """Un renglón por artículo del programa (los del catálogo que no están en el programa se descartan): fecha de
+    alta, antigüedad, presupuesto (importe pedido), comprado (importe surtido) y si registra compras."""
+    d = unicos.drop_duplicates("ART_ID")[["ART_ID", "ARTICULO", "CVE", "PROV_CORTO", "PROVEEDOR", "PRODUCTO", "MARCA",
+                                          "PRESENTACION"]].reset_index(drop=True)
+    d["FECHA_ALTA"] = pd.to_datetime(d.ART_ID.map(altas))
+    d["DIAS"] = (hoy - d.FECHA_ALTA).dt.days
+    d["GRUPO"] = np.select([d.FECHA_ALTA.isna(), d.FECHA_ALTA > hoy - pd.DateOffset(years=1)],
+                           [SIN_FECHA, NUEVOS], ANTIGUOS)
+    d["REGISTRO"] = d.ART_ID.isin(imp.index)
+    d[["PEDIDO", "SURTIDO"]] = imp.reindex(d.ART_ID)[["PEDIDO", "SURTIDO"]].fillna(0).to_numpy()
+    d["PCT"] = (d.SURTIDO / d.PEDIDO).where(d.PEDIDO > 0)
+    d["ESTADO"] = np.select([d.SURTIDO > 0, ~d.REGISTRO, d.PEDIDO > 0],
+                            ["Con compras", "Sin registro", "Pedido sin surtir"], "Sin pedido")
+    return d
+
+
+_altas, _hojas, _avisos_extra = leer_complementos()
+compras = None
+if _altas is not None and _hojas:
+    _ids = set(unicos.ART_ID)
+    compras = armar_compras(_altas, max(_hojas, key=lambda h: len(_ids & set(h.index))))
+falta_extra = [n for n, ok in [("el catálogo de artículos (fecha de alta)", _altas is not None),
+                               ("el de importe pedido y surtido", bool(_hojas))] if not ok]
 
 # ──────────────────────────────────────────────────────────────
 # ACCESO CON CÓDIGO
@@ -1887,6 +2025,290 @@ def comparador():
 
 
 # ──────────────────────────────────────────────────────────────
+# COMPRAS Y ANTIGÜEDAD
+# Presupuesto = importe pedido (lo que se planeó pagar). Comprado = importe surtido (lo que se terminó comprando
+# según las existencias). Antigüedad = tiempo desde la fecha de alta del artículo en el catálogo.
+# ──────────────────────────────────────────────────────────────
+def dinero_corto(x) -> str:
+    if pd.isna(x):
+        return "–"
+    if abs(x) >= 1e6:
+        return f"${x / 1e6:,.1f} M"
+    return f"${x / 1e3:,.0f} mil" if abs(x) >= 1e3 else f"${x:,.0f}"
+
+
+def pct_txt(p, dec=1) -> str:
+    return "–" if pd.isna(p) else f"{p * 100:,.{dec}f}%"
+
+
+def fecha_corta(d) -> str:
+    return "–" if pd.isna(d) else f"{d.day:02d}/{d.month:02d}/{d.year}"
+
+
+def antiguedad_txt(dias) -> str:
+    if pd.isna(dias):
+        return "–"
+    if dias < 365:
+        meses = int(dias // 30.44)
+        return "Menos de 1 mes" if meses < 1 else ("1 mes" if meses == 1 else f"{meses} meses")
+    anios = int(dias // 365.25)
+    return "1 año" if anios == 1 else f"{anios} años"
+
+
+def color_grupo(g):
+    return {NUEVOS: T["acento"], ANTIGUOS: T["verde"]}.get(g, T["tenue"])
+
+
+def grupos_de(d):
+    """Grupos de antigüedad que tienen artículos, en orden."""
+    return [g for g in (NUEVOS, ANTIGUOS, SIN_FECHA) if (d.GRUPO == g).any()]
+
+
+def hover_compra(x, con_prov):
+    return (f"<b>{escape(x.ARTICULO.title())}</b><br>ART. {escape(x.ART_ID)}"
+            + (f" · {escape(x.PROV_CORTO)}" if con_prov else "")
+            + f"<br>Alta: {fecha_corta(x.FECHA_ALTA)} ({antiguedad_txt(x.DIAS)})"
+            + f"<br>Presupuesto: {dinero(x.PEDIDO)}<br>Comprado: {dinero(x.SURTIDO)} · {pct_txt(x.PCT)}")
+
+
+def barras_compras(d, clave, color, con_prov):
+    """Por artículo: presupuesto (barra clara, atrás) y lo comprado (barra sólida, adelante), con el % comprado."""
+    etiquetas = unicas([corto(a.title(), 34) for a in d.ARTICULO])
+    hover = [hover_compra(x, con_prov) for x in d.itertuples()]
+    tope = np.maximum(d.PEDIDO.to_numpy(), d.SURTIDO.to_numpy())
+    fig = go.Figure()
+    for nombre, col, c in [("Presupuesto", "PEDIDO", alfa(color, .22)), ("Comprado", "SURTIDO", color)]:
+        fig.add_trace(go.Bar(y=etiquetas, x=d[col], orientation="h", name=nombre, marker_color=c,
+                             customdata=hover, hovertemplate="%{customdata}<extra></extra>"))
+    fig.add_trace(go.Scatter(y=etiquetas, x=tope, mode="text", textposition="middle right", showlegend=False,
+                             text=[f"  {dinero_corto(s)} · {pct_txt(p, 0)}" for s, p in zip(d.SURTIDO, d.PCT)],
+                             textfont=dict(color=T["texto2"], size=11), hoverinfo="skip"))
+    estilo(fig, max(260, 28 * len(d) + 70), leyenda=True)
+    fig.update_layout(barmode="overlay", bargap=.3, margin=dict(t=4, b=40, r=8), legend=dict(y=-0.04))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
+    fig.update_xaxes(visible=False, range=[0, max(tope.max(), 1) * 1.45])
+    mostrar(fig, clave)
+
+
+def grafica_pct_grupos(d, clave):
+    """Barras 100%: de cada grupo de antigüedad, qué parte del presupuesto se compró y qué parte no se surtió."""
+    filas = [("Todos", d)] + [(g, d[d.GRUPO == g]) for g in grupos_de(d)]
+    etiquetas, comp, falta, hov = [], [], [], []
+    for g, x in filas:
+        p_, s_ = x.PEDIDO.sum(), x.SURTIDO.sum()
+        pct = s_ / p_ if p_ else 0
+        etiquetas.append(f"{g} · {len(x):,} art.")
+        comp.append(min(pct, 1) * 100)
+        falta.append(max(0, 1 - pct) * 100)
+        hov.append(f"<b>{g}</b><br>Presupuesto: {dinero(p_)}<br>Comprado: {dinero(s_)} · {pct_txt(pct)}"
+                   f"<br>No surtido: {dinero(max(p_ - s_, 0))}")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=etiquetas, x=comp, orientation="h", name="Comprado", customdata=hov,
+                         marker_color=[P1255 if g == "Todos" else color_grupo(g) for g, _ in filas],
+                         text=[f"{v:.1f}%" for v in comp], textposition="inside", insidetextanchor="start",
+                         textfont=dict(color="#fff", size=12), hovertemplate="%{customdata}<extra></extra>"))
+    fig.add_trace(go.Bar(y=etiquetas, x=falta, orientation="h", name="No surtido", customdata=hov,
+                         marker_color=T["otros"], text=[f"{v:.1f}%" if v >= 4 else "" for v in falta],
+                         textposition="inside", textfont=dict(color=T["texto"], size=11),
+                         hovertemplate="%{customdata}<extra></extra>"))
+    estilo(fig, 90 + 56 * len(filas), leyenda=True)
+    fig.update_layout(barmode="stack", bargap=.35, margin=dict(t=4, b=40), legend=dict(y=-0.08))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=12, color=T["texto2"]))
+    fig.update_xaxes(range=[0, 100], ticksuffix="%")
+    mostrar(fig, clave)
+
+
+def grafica_estado_grupos(d, clave):
+    """Columnas por grupo de antigüedad: artículos con compras y sin compras."""
+    gs = grupos_de(d)
+    fig = go.Figure()
+    for nombre, filtro, color in [("Con compras", d.ESTADO == "Con compras", T["verde"]),
+                                  ("Sin compras", d.ESTADO != "Con compras", T["oro"])]:
+        vals = [int((filtro & (d.GRUPO == g)).sum()) for g in gs]
+        tot = [max(int((d.GRUPO == g).sum()), 1) for g in gs]
+        fig.add_trace(go.Bar(x=gs, y=vals, name=nombre, marker_color=color, text=[f"{v:,}" for v in vals],
+                             textposition="inside", textfont=dict(color="#fff", size=12),
+                             customdata=[v / t for v, t in zip(vals, tot)],
+                             hovertemplate="<b>%{x}</b><br>" + nombre + ": %{y:,} artículos · %{customdata:.0%}"
+                                                                        "<extra></extra>"))
+    estilo(fig, 300, leyenda=True)
+    fig.update_layout(barmode="stack", bargap=.45, margin=dict(t=10, b=40))
+    fig.update_yaxes(visible=False)
+    fig.update_xaxes(tickfont=dict(color=T["texto2"], size=12), gridcolor="rgba(0,0,0,0)")
+    mostrar(fig, clave)
+
+
+def chip_estado(e):
+    clase = {"Sin pedido": "medio", "Pedido sin surtir": "alto"}.get(e, "")
+    return f'<span class="chip {clase}">{escape(e)}</span>'
+
+
+@st.cache_data(show_spinner=False)
+def excel_altas(d: pd.DataFrame) -> bytes:
+    """Excel para descargar: cada artículo con su fecha de alta, antigüedad, presupuesto y lo comprado."""
+    salida = pd.DataFrame({
+        "CVE": d.CVE, "PROVEEDOR": d.PROVEEDOR, "ART.": d.ART_ID, "ARTICULO": d.ARTICULO, "PRODUCTO": d.PRODUCTO,
+        "MARCA": d.MARCA, "PRESENTACION": d.PRESENTACION, "FECHA DE ALTA": d.FECHA_ALTA.dt.date,
+        "ANTIGÜEDAD (AÑOS)": (d.DIAS / 365.25).round(1), "ANTIGÜEDAD": d.GRUPO,
+        "PRESUPUESTO (IMPORTE PEDIDO)": d.PEDIDO, "COMPRADO (IMPORTE SURTIDO)": d.SURTIDO,
+        "% COMPRADO": d.PCT, "ESTADO": d.ESTADO})
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        salida.to_excel(w, index=False, sheet_name="Articulos")
+        hoja = w.sheets["Articulos"]
+        anchos = [7, 40, 10, 46, 26, 18, 16, 14, 12, 16, 20, 20, 12, 18]
+        for i, ancho in enumerate(anchos):
+            letra = hoja.cell(row=1, column=i + 1).column_letter
+            hoja.column_dimensions[letra].width = ancho
+            for celda in hoja[letra][1:]:
+                if i == 7:
+                    celda.number_format = "dd/mm/yyyy"
+                elif i in (10, 11):
+                    celda.number_format = '"$"#,##0.00'
+                elif i == 12:
+                    celda.number_format = "0.0%"
+        hoja.freeze_panes = "A2"
+        hoja.auto_filter.ref = hoja.dimensions
+    return buf.getvalue()
+
+
+def boton_descarga(d, clave, nombre):
+    st.download_button("Descargar en Excel", data=excel_altas(d), icon=":material/download:", key=clave,
+                       file_name=f"{nombre}_{hoy:%Y%m%d}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+def secciones_compras(yo=None):
+    """Presupuesto contra lo comprado; más y menos comprados separados por antigüedad; artículos sin compras."""
+    d = compras if yo is None else compras[compras.CVE == yo]
+    con_prov = yo is None
+    quien = "tus artículos" if yo else "los artículos del programa"
+    p_tot, s_tot = d.PEDIDO.sum(), d.SURTIDO.sum()
+    pct = s_tot / p_tot if p_tot else float("nan")
+    n_con = int((d.ESTADO == "Con compras").sum())
+
+    # 1. Presupuesto frente a lo comprado
+    seccion("Presupuesto y compras", "Presupuesto = importe pedido (lo que se planeó pagar). Comprado = importe "
+            "surtido (lo que se terminó comprando según las existencias).", "compras")
+    pct_prog = compras.SURTIDO.sum() / compras.PEDIDO.sum() if compras.PEDIDO.sum() else float("nan")
+    md('<div class="kpis cuatro">' + "".join([
+        kpi_html("Presupuesto", dinero_corto(p_tot), "Importe pedido · 100%", "precio", P626),
+        kpi_html("Comprado", pct_txt(pct), f"{dinero_corto(s_tot)} surtidos por existencias"
+                 + (f" · programa: {pct_txt(pct_prog)}" if yo else ""), "producto", P7420),
+        kpi_html("No surtido", pct_txt(max(0, 1 - pct) if pd.notna(pct) else pct),
+                 f"{dinero_corto(max(p_tot - s_tot, 0))} del presupuesto", "alerta", P1255),
+        kpi_html("Artículos con compras", f"{n_con:,} de {len(d):,}", f"{len(d) - n_con:,} sin compras registradas",
+                 "articulo", P7421),
+    ]) + "</div>")
+    a, b = st.columns([3, 2], gap="medium")
+    with a:
+        with tarjeta("Qué parte del presupuesto se compró", "cp_pct", "Por antigüedad del artículo (desde su fecha "
+                     "de alta). Pasa el cursor para ver los importes.", extra=f"{len(d):,} artículos"):
+            grafica_pct_grupos(d, "g_cp_pct")
+    with b:
+        with tarjeta("Artículos con y sin compras", "cp_est", "Por antigüedad del artículo."):
+            grafica_estado_grupos(d, "g_cp_est")
+    hall = []
+    for g, c, ico in [(NUEVOS, P7420, "estrella"), (ANTIGUOS, P626, "articulo")]:
+        x = d[d.GRUPO == g]
+        if len(x) and s_tot:
+            hall.append((c, ico, f"Los artículos con <b>{g.lower()}</b> de alta son <b>{len(x):,}</b> "
+                                 f"({pct_txt(len(x) / len(d), 0)} de {quien}) y se llevan "
+                                 f"<b>{pct_txt(x.SURTIDO.sum() / s_tot, 0)}</b> de lo comprado; se compró "
+                                 f"<b>{pct_txt(x.SURTIDO.sum() / x.PEDIDO.sum() if x.PEDIDO.sum() else float('nan'))}"
+                                 f"</b> de su presupuesto."))
+    if len(d) - n_con:
+        hall.append((P1255, "alerta", f"<b>{len(d) - n_con:,}</b> de {quien} no registran compras."))
+    if hall:
+        lectura_rapida(hall)
+
+    # 2. Más y menos comprados, separados por antigüedad
+    seccion("Más y menos comprados por antigüedad", "Lo comprado de cada artículo frente a su presupuesto. A la "
+            "izquierda, los que tienen menos de 1 año de alta; a la derecha, los que llevan más de 1 año.",
+            "antiguedad")
+    orden = st.segmented_control("Orden", ["Más comprados", "Menos comprados"], default="Más comprados",
+                                 key=f"orden_compras_{yo or 'prog'}", label_visibility="collapsed") or "Más comprados"
+    mas = orden == "Más comprados"
+    n_top = 15
+    a, b = st.columns(2, gap="medium")
+    for col_, g, k in [(a, NUEVOS, "nuevos"), (b, ANTIGUOS, "antiguos")]:
+        x = d[(d.GRUPO == g) & (d.SURTIDO > 0)].sort_values("SURTIDO", ascending=not mas)
+        with col_, tarjeta(f"{g} de alta · {orden.lower()}", f"cp_{k}",
+                           f"Los {min(n_top, len(x))} {orden.lower()} de este grupo. Barra clara = presupuesto; "
+                           f"sólida = comprado.", extra=[f"{int((d.GRUPO == g).sum()):,} artículos",
+                                                          f"{len(x):,} con compras"]):
+            if x.empty:
+                md(f'<div class="lb-mas">{svg("ok", 16)}No hay artículos con compras en este grupo.</div>')
+                continue
+            top = x.head(n_top)
+            barras_compras(top, f"g_cp_{k}", color_grupo(g), con_prov)
+            if mas and x.SURTIDO.sum():
+                guia(f"Estos {len(top)} concentran <b>{pct_txt(top.SURTIDO.sum() / x.SURTIDO.sum(), 0)}</b> de lo "
+                     f"comprado en el grupo ({dinero_corto(top.SURTIDO.sum())} de {dinero_corto(x.SURTIDO.sum())}).")
+            elif not mas:
+                guia("Solo cuentan los artículos con alguna compra; los que no tienen ninguna están en la sección "
+                     "siguiente.")
+
+    # 3. Sin compras
+    sin = d[d.ESTADO != "Con compras"].sort_values(["GRUPO", "FECHA_ALTA"], ascending=[True, False])
+    seccion("Artículos sin compras", "Artículos del programa que no registran compras: sin pedido, con pedido que no "
+            "se surtió o que no aparecen en el reporte de importes.", "sincompras")
+    if sin.empty:
+        with tarjeta("Sin compras", "sc_vacio"):
+            md(f'<div class="lb-mas">{svg("ok", 16)}Todos {quien} registran compras.</div>')
+        return
+    a, b = st.columns([2, 3], gap="medium")
+    with a:
+        with tarjeta("Por antigüedad y motivo", "sc_graf", extra=f"{len(sin):,} artículos"):
+            gs = grupos_de(sin)
+            fig = go.Figure()
+            for e, c in [("Sin pedido", T["oro"]), ("Pedido sin surtir", T["alerta"]), ("Sin registro", T["tenue"])]:
+                vals = [int(((sin.GRUPO == g) & (sin.ESTADO == e)).sum()) for g in gs]
+                if sum(vals):
+                    fig.add_trace(go.Bar(x=gs, y=vals, name=e, marker_color=c, text=[f"{v:,}" if v else "" for v in vals],
+                                         textposition="inside", textfont=dict(color="#fff", size=12),
+                                         hovertemplate="<b>%{x}</b><br>" + e + ": %{y:,} artículos<extra></extra>"))
+            estilo(fig, 320, leyenda=True)
+            fig.update_layout(barmode="stack", bargap=.45, margin=dict(t=10, b=40))
+            fig.update_yaxes(visible=False)
+            fig.update_xaxes(tickfont=dict(color=T["texto2"], size=12), gridcolor="rgba(0,0,0,0)")
+            mostrar(fig, "g_sc_graf")
+            guia("<b>Sin pedido</b>: no se pidió. <b>Pedido sin surtir</b>: se pidió y no llegó por existencias. "
+                 "<b>Sin registro</b>: no aparece en el reporte de importes.")
+    with b:
+        with tarjeta("Listado de artículos sin compras", "sc_tabla", "Los más recientes primero en cada grupo."):
+            filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}"
+                      + (f" · {escape(x.PROV_CORTO)}" if con_prov else "") + "</small>",
+                      f"{fecha_corta(x.FECHA_ALTA)}<small>{antiguedad_txt(x.DIAS)}</small>",
+                      chip_estado(x.ESTADO), dinero(x.PEDIDO)] for x in sin.itertuples()]
+            tabla(["Artículo", "Alta", "Motivo", "Presupuesto"], filas, numericas=(3,), alto=420,
+                  buscar="Buscar artículo, clave, proveedor o motivo…",
+                  busca_extra=[f"{x.PRODUCTO} {x.MARCA} {x.PROVEEDOR if con_prov else ''} {x.GRUPO}"
+                               for x in sin.itertuples()])
+
+
+def seccion_altas():
+    """Todos los artículos del programa con su fecha de alta, para consultar y descargar (vista del programa)."""
+    seccion("Artículos y fecha de alta", "Cada artículo del programa con la fecha en que se dio de alta en el "
+            "catálogo, su presupuesto y lo comprado. Descárgalo en Excel.", "altas")
+    d = compras.sort_values("FECHA_ALTA", ascending=False)
+    with tarjeta("Fecha de alta por artículo", "al_tabla", "Del más reciente al más antiguo; escribe para filtrar.",
+                 extra=[f"{int((d.GRUPO == NUEVOS).sum()):,} con menos de 1 año",
+                        f"{int((d.GRUPO == ANTIGUOS).sum()):,} con más de 1 año"]):
+        boton_descarga(d, "dl_altas", "articulos_fecha_alta")
+        filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)} · {escape(x.PROV_CORTO)}</small>",
+                  escape(x.PRODUCTO), f"{fecha_corta(x.FECHA_ALTA)}<small>{antiguedad_txt(x.DIAS)}</small>",
+                  dinero(x.PEDIDO), dinero(x.SURTIDO), pct_txt(x.PCT)] for x in d.itertuples()]
+        tabla(["Artículo", "Producto", "Alta", "Presupuesto", "Comprado", "% comprado"], filas,
+              numericas=(3, 4, 5), alto=480, buscar="Buscar artículo, clave, proveedor, producto o marca…",
+              busca_extra=[f"{x.MARCA} {x.PROVEEDOR} CVE {x.CVE} {x.GRUPO} {x.ESTADO}" for x in d.itertuples()],
+              sugerencias={"Proveedor": (d.groupby("PROV_CORTO")["ART_ID"].nunique().sort_values(ascending=False),
+                                         "art."),
+                           "Producto": (d.groupby("PRODUCTO")["ART_ID"].nunique().sort_values(ascending=False),
+                                        "art.")})
+
+
+# ──────────────────────────────────────────────────────────────
 # VISTA DE UN PROVEEDOR
 # ──────────────────────────────────────────────────────────────
 def vista_proveedor(yo):
@@ -1901,9 +2323,12 @@ def vista_proveedor(yo):
        f'<b>{escape(r["nombre"])}</b><span>{escape(r.razon)} · CVE {escape(yo)}</span></div><div class="etq">'
        f'<span class="etq-c">{svg("mapa", 14)}{"Cobertura nacional" if r.nacional else "Cobertura regional"}</span>'
        f'</div></div>')
+    hay_compras = compras is not None and (compras.CVE == yo).any()
     indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("surtido", "Tu surtido"),
-            ("precios", "Tu precio en el mercado"), ("programa", "Proveedores por rangos"), ("regiones", "Cobertura"),
-            ("articulos", "Tus artículos")])
+            ("precios", "Tu precio en el mercado"), ("programa", "Proveedores por rangos"), ("regiones", "Cobertura")]
+           + ([("compras", "Presupuesto y compras"), ("antiguedad", "Más y menos comprados"),
+               ("sincompras", "Sin compras")] if hay_compras else [])
+           + [("articulos", "Tus artículos")])
 
     # 1. Resumen
     seccion("Resumen", "Lo principal de tu participación en el programa.", "resumen")
@@ -2007,17 +2432,31 @@ def vista_proveedor(yo):
                       '<span class="chip alto">Sin cobertura</span>', f"{int(reg.at[s, 'prov'])}"] for s in REGIONES]
             tabla(["Región", "Tus artículos", "Proveedores en la región"], filas, numericas=(1, 2))
 
+    if hay_compras:
+        secciones_compras(yo)
+
     # 7. Artículos
-    seccion("Tus artículos", "Todos tus artículos; escribe para filtrar o elige una sugerencia.", "articulos")
+    seccion("Tus artículos", "Todos tus artículos con su fecha de alta; escribe para filtrar o elige una sugerencia.",
+            "articulos")
     with tarjeta("Listado de artículos", "a_tabla", extra=f"{r.art:,} artículos"):
         d = mio.sort_values(["PRODUCTO", "ARTICULO"])
+        alta = compras.set_index("ART_ID") if hay_compras else None
+        if hay_compras:
+            boton_descarga(compras[compras.CVE == yo].sort_values("FECHA_ALTA", ascending=False), "dl_mios",
+                           f"articulos_{yo}")
+
+        def col_alta(a):
+            if alta is None or a not in alta.index:
+                return []
+            return [f"{fecha_corta(alta.at[a, 'FECHA_ALTA'])}<small>{antiguedad_txt(alta.at[a, 'DIAS'])}</small>"]
         filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}</small>", escape(x.PRODUCTO), escape(x.MARCA),
                   escape(x.PRESENTACION),
                   "Nacional" if x.ALCANCE == "Nacional" else escape(" ".join(x.REGIONES)) or "–",
-                  dinero(x.COSTO_UNIT)]
+                  *col_alta(x.ART_ID), dinero(x.COSTO_UNIT)]
                  for x in d.itertuples()]
-        tabla(["Artículo", "Producto", "Marca", "Presentación", "Cobertura", "Costo unitario"], filas,
-              numericas=(5,), alto=480, buscar="Buscar artículo, producto, marca, clave o región…",
+        cab = ["Artículo", "Producto", "Marca", "Presentación", "Cobertura"] + (["Alta"] if hay_compras else [])
+        tabla(cab + ["Costo unitario"], filas,
+              numericas=(len(cab),), alto=480, buscar="Buscar artículo, producto, marca, clave o región…",
               busca_extra=[" ".join(f"{s_} {REGIONES[s_][0]}" for s_ in x.REGIONES) for x in d.itertuples()],
               sugerencias=sugerencias_de(mio, {"Producto": "PRODUCTO", "Marca": "MARCA", "Artículo": "ARTICULO"}))
 
@@ -2028,7 +2467,9 @@ def vista_proveedor(yo):
 def vista_programa():
     indice([("resumen", "Resumen"), ("ranking", "Ranking y comparativas"), ("comparar", "Comparar por artículo"),
             ("proveedores", "Proveedores por rangos"),
-            ("precios", "Rangos de precio"), ("regiones", "Cobertura")])
+            ("precios", "Rangos de precio"), ("regiones", "Cobertura")]
+           + ([("compras", "Presupuesto y compras"), ("antiguedad", "Más y menos comprados"),
+               ("sincompras", "Sin compras"), ("altas", "Fecha de alta")] if compras is not None else []))
     seccion("Resumen", "El programa de un vistazo.", "resumen")
     n_comp = int((prov_por_prod >= 2).sum())
 
@@ -2123,6 +2564,18 @@ def vista_programa():
                      for s, x in reg.sort_values("prov", ascending=False).iterrows()]
             tabla(["Región", "Proveedores", "Artículos"], filas, numericas=(1, 2))
 
+    if compras is not None:
+        secciones_compras()
+        seccion_altas()
+    else:
+        st.write("")
+        st.info("Para ver presupuesto contra compras, antigüedad y fecha de alta de los artículos falta "
+                + " y ".join(falta_extra) + ". Agrega sus vínculos en los secretos (`[onedrive]` link2 y link3) o "
+                "coloca las copias junto a app_proveedores.py."
+                + (" Errores: " + "; ".join(_avisos_extra) if _avisos_extra else ""), icon=":material/info:")
+    if compras is not None and _avisos_extra:
+        st.caption("Algunos vínculos complementarios no se pudieron descargar; se usó la copia local: "
+                   + "; ".join(_avisos_extra))
 
 
 if yo:
@@ -2131,5 +2584,7 @@ else:
     vista_programa()
 
 md('<div class="pie">Subgerencia de Abarrotes · Dirección Comercial · Alimentación para el Bienestar<br>'
-   'Información de la hoja VIGENTES del Programa de Abasto Rural 2026.</div>')
+   'Información de la hoja VIGENTES del Programa de Abasto Rural 2026'
+   + ('; fechas de alta del Catálogo de Artículos e importes pedido y surtido.' if compras is not None else '.')
+   + '</div>')
 st.html(BUSCADOR_JS, unsafe_allow_javascript=True)
