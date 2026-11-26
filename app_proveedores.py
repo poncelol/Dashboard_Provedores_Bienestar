@@ -2329,15 +2329,23 @@ def secciones_compras(yo=None):
             guia("<b>Sin pedido</b>: no se pidió. <b>Pedido sin surtir</b>: se pidió y no llegó por existencias. "
                  "<b>Sin registro</b>: no aparece en el reporte de importes.")
     with b:
-        with tarjeta("Listado de artículos sin compras", "sc_tabla", "Los más recientes primero en cada grupo."):
+        # Botones para ver por separado los de menos de 1 año y los de más de 1 año
+        gs = grupos_de(sin)
+        cuenta = {g: int((sin.GRUPO == g).sum()) for g in gs}
+        grupo = st.segmented_control("Antigüedad", gs, default=gs[0], key=f"sc_grupo_{yo or 'prog'}",
+                                     format_func=lambda g: f"{g} ({cuenta[g]:,})",
+                                     label_visibility="collapsed") or gs[0]
+        lista = sin[sin.GRUPO == grupo]
+        with tarjeta(f"Artículos sin compras · {grupo.lower()}", "sc_tabla", "Los más recientes primero.",
+                     extra=f"{len(lista):,} artículos"):
             filas = [[f"{escape(x.ARTICULO)}<small>ART. {escape(x.ART_ID)}"
                       + (f" · {escape(x.PROV_CORTO)}" if con_prov else "") + "</small>",
                       f"{fecha_corta(x.FECHA_ALTA)}<small>{antiguedad_txt(x.DIAS)}</small>",
-                      chip_estado(x.ESTADO), dinero(x.PEDIDO)] for x in sin.itertuples()]
+                      chip_estado(x.ESTADO), dinero(x.PEDIDO)] for x in lista.itertuples()]
             tabla(["Artículo", "Alta", "Motivo", "Presupuesto"], filas, numericas=(3,), alto=420,
                   buscar="Buscar artículo, clave, proveedor o motivo…",
-                  busca_extra=[f"{x.PRODUCTO} {x.MARCA} {x.PROVEEDOR if con_prov else ''} {x.GRUPO}"
-                               for x in sin.itertuples()])
+                  busca_extra=[f"{x.PRODUCTO} {x.MARCA} {x.PROVEEDOR if con_prov else ''}"
+                               for x in lista.itertuples()])
 
 
 # ──────────────────────────────────────────────────────────────
