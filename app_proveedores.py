@@ -1941,6 +1941,18 @@ def partir(texto, n=26):
     return escape(corto(texto[:i], n + 4)) + "<br>" + escape(corto(texto[i + 1:], n + 4))
 
 
+def renglones(texto, n=30):
+    """Texto completo en varios renglones de hasta n letras (corta en espacios): no se pierde nada del nombre."""
+    lineas, actual = [], ""
+    for w in str(texto).split():
+        if actual and len(actual) + 1 + len(w) > n:
+            lineas.append(actual)
+            actual = w
+        else:
+            actual = f"{actual} {w}".strip()
+    return "<br>".join(escape(x) for x in lineas + [actual] if x)
+
+
 def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resaltar=None, secundarios=None):
     """Barras horizontales de precio por unidad, del más barato (arriba) al más caro, con la mediana punteada.
     Cada barra dice su precio y cuánto se aleja de la mediana; el color indica si es más barato o más caro.
@@ -1963,7 +1975,8 @@ def grafica_precios(etiquetas, precios_, base, clave, mediana, hover=None, resal
                   line=dict(dash="dot", width=2, color=T["texto3"]))
     fig.add_annotation(x=mediana, y=1, yref="paper", yshift=14, xanchor="right", xshift=-4, showarrow=False,
                        text=f"Mediana: <b>${mediana:,.2f}</b> por {base}", font=dict(color=T["texto2"], size=12))
-    estilo(fig, max(240, 46 * len(etiquetas) + 70))
+    # El alto crece con los renglones de cada etiqueta (los nombres largos ocupan varios)
+    estilo(fig, max(240, sum(30 + 16 * (e.count("<br>") + 1) for e in etiquetas) + 70))
     fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=12, color=T["texto"]))
     fig.update_xaxes(visible=False, range=[0, tope * 1.85])
     fig.update_layout(margin=dict(t=36, b=4, r=8), bargap=.35)
@@ -1986,24 +1999,14 @@ def comparar_articulo():
     # Solo se comparan artículos iguales. Lo más justo es la misma presentación (mismo gramaje o litraje por pieza);
     # si se incluyen otras presentaciones, el precio se lleva a kg / L / pza para ponerlas en la misma escala.
     iguales = similares(a, pares) | (pares.clave == sel)
+    if iguales.sum() < 2:
+        guia(f"Ningún otro proveedor tiene un artículo igual a <b>{escape(a.ARTICULO)}</b> para compararlo.")
+        return
     misma = iguales & ((pares.CONTENIDO - a.CONTENIDO).abs() < 1e-6)
     cont = presentacion(1, a.GRAM, a.UM).replace("1 × ", "")
-    opciones = {"misma": (f"Iguales, misma presentación de {cont} ({int(misma.sum())})", misma),
-                "iguales": (f"Iguales, todas las presentaciones ({int(iguales.sum())})", iguales),
-                "todos": (f"Todo el producto {a.PRODUCTO} ({len(pares)})", pd.Series(True, index=pares.index))}
-    validas = [k for k, (_, filtro) in opciones.items() if filtro.sum() >= 2]
-    validas = [k for i, k in enumerate(validas) if i == 0 or opciones[k][1].sum() > opciones[validas[i - 1]][1].sum()]
-    if len(validas) > 1:
-        modo = st.radio("Comparar con", validas, format_func=lambda k: opciones[k][0], horizontal=True,
-                        key=f"cmp_modo_{sel}")
-    else:
-        modo = validas[0]
-    if "misma" not in validas:
-        guia(f"Nadie más tiene <b>{escape(a.ARTICULO)}</b> en la misma presentación ({escape(cont)}); se compara "
-             + ("con artículos iguales de otras presentaciones" if modo == "iguales" else
-                f"con todo el producto <b>{escape(a.PRODUCTO)}</b>, que puede incluir artículos distintos")
-             + f", llevando el precio a $ por {a.BASE}.")
-    pares = pares[opciones[modo][1]].copy()
+    # Solo artículos iguales; si todos tienen la misma presentación se compara por pieza, si no, por kg / L / pza
+    modo = "misma" if misma.sum() == iguales.sum() else "iguales"
+    pares = pares[iguales].copy()
     pares["lugar"] = pares.PRECIO_U.rank(method="min")
     mediana = pares.PRECIO_U.median()
     pares["dif"] = (pares.PRECIO_U / a.PRECIO_U - 1) * 100
@@ -2022,12 +2025,10 @@ def comparar_articulo():
     if modo == "misma":
         txt = (f"<b>{n - 1}</b> artículos iguales en la misma presentación ({escape(cont)}): como el contenido es el "
                f"mismo, el más barato por {a.BASE} también es el más barato por pieza.")
-    elif modo == "iguales":
+    else:
         txt = (f"<b>{n - 1}</b> artículos iguales en distintas presentaciones. Como cambia el contenido, se compara "
                f"el precio por {a.BASE} (costo de una pieza ÷ su contenido); los empaques grandes suelen salir más "
                "baratos por unidad.")
-    else:
-        txt = (f"los <b>{n - 1}</b> artículos más de <b>{escape(a.PRODUCTO)}</b>, comparando el precio por {a.BASE}.")
     guia(f"<b>{escape(a.ARTICULO)}</b> de <b>{escape(a.PROV_CORTO)}</b> frente a {txt} ({n_prov} proveedores)")
 
     orden = pares.sort_values(["PRECIO_U", "ARTICULO"])
@@ -2040,8 +2041,8 @@ def comparar_articulo():
         with tarjeta(f"Precio por {a.BASE}: artículo elegido frente a los demás", "cmp_a_graf",
                      "Arriba, el más barato; la línea punteada es la mediana de todos.", extra=f"#{k} de {n}"):
             leyenda_precios(resaltado="Artículo elegido", secundario=f"Otros artículos de {a.PROV_CORTO}")
-            et = unicas([f"<b>#{int(x.lugar)}</b>  {escape(corto(x.ARTICULO, 30))}<br>"
-                         f"<span style='font-size:11px'>{escape(corto(x.PROV_CORTO, 30))}</span>"
+            et = unicas([f"<b>#{int(x.lugar)}</b>  {renglones(x.ARTICULO, 30)}<br>"
+                         f"<span style='font-size:11px'>{escape(x.PROV_CORTO)}</span>"
                          for x in orden.itertuples()])
             filas_o = list(orden.itertuples())
             grafica_precios(et, list(orden.PRECIO_U), a.BASE, "g_cmp_a", mediana,
