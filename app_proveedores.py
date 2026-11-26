@@ -663,11 +663,18 @@ details.kpi-det .nombres::-webkit-scrollbar-thumb { background: var(--borde); bo
 .leyenda i.rombo { transform: rotate(45deg) scale(.8); border-radius: 2px; }
 
 /* Tablas */
-.tabla-wrap { overflow-x: auto; }
+/* Sin barra horizontal: la tabla se ajusta al ancho y el texto baja de renglón */
+.tabla-wrap { overflow-x: hidden; max-width: 100%; }
 .tabla-wrap.scroll { overflow-y: auto; }
 .tabla { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.tabla td { overflow-wrap: anywhere; }
 .tabla thead th { font-size: .7rem; text-transform: uppercase; color: var(--tenue); font-weight: 600;
-  background: var(--sutil); padding: 8px; text-align: left; border: none; white-space: nowrap; }
+  background: var(--sutil); padding: 8px; text-align: left; border: none; white-space: normal; }
+@media (max-width: 640px) {
+  .tabla { font-size: .78rem; }
+  .tabla td, .tabla thead th { padding: 7px 5px; }
+  .tabla .num { white-space: normal; }
+}
 .tabla-wrap.scroll thead th { position: sticky; top: 0; z-index: 1; }
 .tabla thead th:first-child { border-radius: 6px 0 0 6px; }
 .tabla thead th:last-child { border-radius: 0 6px 6px 0; }
@@ -1120,19 +1127,19 @@ def barras_ranking(valores, nombres, lugares, clave, color, unidad, colores=None
     mostrar(fig, clave)
 
 
-def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10, resaltar=None):
+def mas_y_menos(serie: pd.Series, nombres: dict, clave, quien, unidad, n=10, resaltar=None, solo_mas=False):
     """Dos tarjetas lado a lado: los n con más y los n con menos. Los empates quedan en orden alfabético.
     resaltar: clave que va en el color de acento si aparece en alguna de las dos listas."""
     serie = serie.loc[sorted(serie.index, key=lambda k: str(nombres.get(k, k)))]
     lugares = serie.rank(ascending=False, method="min")
     mas = serie.sort_values(ascending=False, kind="stable").head(n)
     menos = serie.sort_values(ascending=True, kind="stable").head(n)
-    a, b = st.columns(2, gap="medium")
+    a, b = (st.container(), None) if solo_mas else st.columns(2, gap="medium")
     for col_, lista, titulo, sufijo, color, sub, extra in [
             (a, mas, f"{quien} con más {unidad}", "mas", T["verde"], f"Los {len(mas)} primeros lugares.",
              f"Máximo: {serie.max():,.0f}"),
             (b, menos, f"{quien} con menos {unidad}", "menos", T["oro"], f"Los {len(menos)} últimos lugares.",
-             f"Mínimo: {serie.min():,.0f}")]:
+             f"Mínimo: {serie.min():,.0f}")][:1 if solo_mas else 2]:
         with col_, tarjeta(titulo, f"{clave}_{sufijo}", sub, extra=extra):
             barras_ranking(lista.values, [nombres.get(k, k) for k in lista.index], lugares[lista.index],
                            f"g_{clave}_{sufijo}", color, unidad,
@@ -1147,7 +1154,8 @@ def titulo_todos(met):
     if met == "Regiones":
         return ("Proveedores según cuántas regiones cubren",
                 "Cada barra cuenta cuántos proveedores llegan a ese número de gerencias regionales (12 = todo el país).")
-    return f"Todos los proveedores por {met.lower()}", "Cada barra es un proveedor, de más a menos."
+    return (f"Los primeros lugares por {met.lower()}",
+            "Elige cuántos ver. Pasa el cursor sobre una barra para ver el detalle de ese proveedor.")
 
 
 def grafica_regiones(clave, resaltar=None, con_nombres=False, etiqueta="Tú"):
@@ -1190,25 +1198,80 @@ def grafica_todos(col, unidad, clave, resaltar=None, con_nombres=False, etiqueta
     if col == "regiones":
         grafica_regiones(clave, resaltar, con_nombres, etiqueta)
         return
+    top = st.segmented_control("Cuántos ver", ["Top 10", "Top 20", "Top 30"], default="Top 10",
+                               key=f"top_{clave}", label_visibility="collapsed") or "Top 10"
+    grafica_top(col, unidad, clave, int(top.split()[1]), resaltar, con_nombres, etiqueta)
+
+
+def globo_proveedor(c, col, unidad, rk, resaltar, con_nombres, etiqueta):
+    """Texto del cursor para un proveedor: su cifra, cuánto representa y cómo se compara (no genérico)."""
+    v, med, total = m.at[c, col], m[col].median(), m[col].sum()
+    lineas = []
+    if con_nombres:
+        lineas += [f"<b>{escape(m.at[c, 'nombre'])}</b> · CVE {escape(c)}", f"Lugar #{int(rk[c])} de {N} · "
+                                                                            f"<b>{v:,} {unidad}</b>"]
+    else:   # vista de un proveedor: los demás no se identifican
+        lineas += [f"<b>{escape(etiqueta) + ' · ' if c == resaltar else ''}Lugar #{int(rk[c])} de {N}</b>",
+                   f"<b>{v:,} {unidad}</b>"]
+    lineas.append(f"{v / total:.1%} de todos los {unidad} del programa" if total else "")
+    if med:
+        lineas.append(f"{v / med:.1f} veces la mediana ({med:,.0f})" if v >= med else f"Por debajo de la mediana ({med:,.0f})")
+    if resaltar in m.index and c != resaltar:
+        dif = v - m.at[resaltar, col]
+        quien = "tú" if not con_nombres else escape(m.at[resaltar, "nombre"])
+        u_ = unidad.removesuffix("s") if abs(dif) == 1 else unidad
+        lineas.append(f"{abs(dif):,} {u_} {'más' if dif > 0 else 'menos'} que {quien}" if dif else f"Igual que {quien}")
+    elif c == resaltar and rk[c] > 1:
+        arriba = m.loc[m[col] > v, col].min()
+        falta = arriba - v
+        lineas.append(f"Te {'falta' if falta == 1 else 'faltan'} <b>{falta:,} "
+                      f"{unidad.removesuffix('s') if falta == 1 else unidad}</b> para subir de lugar")
+    if con_nombres:
+        lineas.append(f"{m.at[c, 'prod']:,} productos · {m.at[c, 'marcas']:,} marcas · "
+                      + ("cobertura nacional" if m.at[c, "nacional"] else f"{m.at[c, 'regiones']} regiones"))
+    return "<br>".join(x for x in lineas if x)
+
+
+def grafica_top(col, unidad, clave, n, resaltar=None, con_nombres=False, etiqueta="Tú"):
+    """Los n primeros lugares en barras horizontales. Si el proveedor `resaltar` no entra en el top, se agrega al final
+    para que siempre se vea dónde está. Sin nombres (vista de un proveedor) los demás aparecen solo con su lugar."""
     s = m[col].sort_values(ascending=False, kind="stable")
+    s = s.loc[sorted(s.index, key=lambda c: (-s[c], m.at[c, "nombre"]))]
     rk = s.rank(ascending=False, method="min")
-    quien = [f"<b>{escape(m.at[c, 'nombre'])}</b><br>" if con_nombres else "" for c in s.index]
+    claves = list(s.index[:n])
+    fuera = resaltar in s.index and resaltar not in claves
+    if fuera:
+        claves.append(resaltar)
+
+    def nombre(c):
+        if c == resaltar and not con_nombres:
+            return f"#{int(rk[c])}  {etiqueta}"
+        return f"#{int(rk[c])}  {corto(m.at[c, 'nombre'], 28)}" if con_nombres else f"#{int(rk[c])}  Proveedor"
+    etiquetas = unicas([("· · ·  " if fuera and c == resaltar else "") + nombre(c) for c in claves])
+    vals = [s[c] for c in claves]
     fig = go.Figure(go.Bar(
-        x=list(range(1, N + 1)), y=s.values, customdata=list(zip(rk.values, quien)),
-        marker_color=[T["acento"] if c == resaltar else alfa(T["verde"], .45) for c in s.index],
-        hovertemplate="%{customdata[1]}Lugar #%{customdata[0]:.0f} · %{y:,} " + unidad + "<extra></extra>"))
-    fig.add_hline(y=s.median(), line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana: {s.median():,.0f}",
-                  annotation_position="top right", annotation_font_color=T["texto3"])
-    if resaltar in s.index:
-        fig.add_annotation(x=list(s.index).index(resaltar) + 1, y=s[resaltar],
-                           text=f"<b>{escape(etiqueta)} · #{int(rk[resaltar])}</b>", showarrow=True, arrowhead=0,
-                           ax=0, ay=-34, arrowcolor=T["acento"], font=dict(color=T["acento"], size=13))
-    estilo(fig, 340)
-    fig.update_layout(bargap=.15, margin=dict(t=30, b=8))
-    fig.update_xaxes(tickvals=[1, N], ticktext=["Más", "Menos"], gridcolor="rgba(0,0,0,0)",
-                     tickfont=dict(color=T["texto2"], size=12))
-    fig.update_yaxes(range=[0, max(s.max(), 1) * 1.2])
+        x=vals, y=etiquetas, orientation="h",
+        marker_color=[T["acento"] if c == resaltar else alfa(T["verde"], .85 - .5 * i / max(len(claves), 1))
+                      for i, c in enumerate(claves)],
+        text=[f"{v:,}" for v in vals], textposition="outside", cliponaxis=False,
+        textfont=dict(color=T["texto2"], size=11),
+        customdata=[globo_proveedor(c, col, unidad, rk, resaltar, con_nombres, etiqueta) for c in claves],
+        hovertemplate="%{customdata}<extra></extra>"))
+    med = s.median()
+    fig.add_vline(x=med, line_dash="dot", line_color=T["tenue"], annotation_text=f"Mediana {med:,.0f}",
+                  annotation_position="bottom right", annotation_font=dict(color=T["texto3"], size=11))
+    estilo(fig, max(260, 28 * len(claves) + 60))
+    fig.update_yaxes(autorange="reversed", gridcolor="rgba(0,0,0,0)", tickfont=dict(size=11, color=T["texto2"]))
+    fig.update_xaxes(visible=False, range=[0, max(max(vals), 1) * 1.18])
+    fig.update_layout(margin=dict(t=4, b=24, r=8), bargap=.25)
     mostrar(fig, clave)
+    arriba = s.iloc[:n].sum()
+    guia(f"Los {min(n, N)} primeros lugares suman <b>{arriba:,} {unidad}</b>: el "
+         f"<b>{arriba / s.sum():.0%}</b> del programa. La línea punteada es la mediana ({med:,.0f})."
+         + (f" Tu lugar es el <b>#{int(rk[resaltar])}</b>; se muestra al final." if fuera and not con_nombres else "")
+         + (f" <b>{escape(m.at[resaltar, 'nombre'])}</b> está en el lugar <b>#{int(rk[resaltar])}</b>; se muestra al "
+            f"final." if fuera and con_nombres else "")
+         if s.sum() else "Sin datos.")
 
 
 def posicion_rango(precio, minimo, maximo):
@@ -1797,47 +1860,27 @@ def ranking_programa():
     met = selector_metrica("met_prog")
     col, unidad, _, _ = METRICAS[met]
     titulo, sub = titulo_todos(met)
-    with tarjeta(titulo, "rk_todos_p", sub + " Pasa el cursor para ver los nombres.",
+    with tarjeta(titulo, "rk_todos_p", sub,
                  extra=f"{m.at[sel, 'nombre']}: #{int(m.at[sel, f'rk_{col}'])}" if sel else f"{N} proveedores"):
         grafica_todos(col, unidad, "g_rk_todos_p", resaltar=sel, con_nombres=True,
                       etiqueta=corto(m.at[sel, "nombre"], 24) if sel else "")
-    st.write("")
-    mas_y_menos(m[col], m["nombre"].to_dict(), "rkp", "Proveedores", unidad, resaltar=sel)
 
     st.write("")
     crit = selector_metrica("crit_prod", ["Proveedores", "Artículos", "Marcas"], default="Proveedores")
     mas_y_menos(prods_m[{"Proveedores": "prov", "Artículos": "art", "Marcas": "marcas"}[crit]],
-                prods_m["nombre"].to_dict(), "rkpr", "Productos", crit.lower())
+                prods_m["nombre"].to_dict(), "rkpr", "Productos", crit.lower(), solo_mas=True)
 
     st.write("")
-    a, b = st.columns(2, gap="medium")
-    with a:
-        orden_r = reg.sort_values(["prov", "art"], ascending=False)
-        regs_sel = set(_regs[sel]) if sel else set()
-        with tarjeta("Regiones de más a menos proveedores", "rk_reg", "Los nacionales cuentan en todas las regiones.",
-                     extra=f"{len(REGIONES)} regiones"):
-            barras_ranking(orden_r.prov.values, [f"{s} · {REGIONES[s][0]}" for s in orden_r.index],
-                           orden_r.prov.rank(ascending=False, method="min"), "g_rk_reg", T["acento"], "proveedores",
-                           colores=[T["acento"] if not sel or s in regs_sel else alfa(T["acento"], .3)
-                                    for s in orden_r.index])
-            if sel:
-                guia(f"En color fuerte, las regiones a las que llega <b>{escape(m.at[sel, 'nombre'])}</b>.")
-    with b:
-        n_nal, n_reg = int(m.nacional.sum()), int((~m.nacional).sum())
-        with tarjeta("Nacionales frente a regionales", "rk_alc", "Promedio por proveedor en cada grupo.",
-                     extra=[f"{n_nal} nacionales", f"{n_reg} regionales"]):
-            ets = ["Artículos", "Productos", "Marcas"]
-            fig = go.Figure()
-            for nombre, filtro, color in [("Nacionales", m.nacional, T["verde"]), ("Regionales", ~m.nacional, T["oro"])]:
-                vals = [m.loc[filtro, METRICAS[e][0]].mean() for e in ets]
-                fig.add_trace(go.Bar(x=ets, y=vals, name=nombre, marker_color=color, text=[f"{v:.1f}" for v in vals],
-                                     textposition="outside", cliponaxis=False, textfont=dict(color=T["texto2"], size=11),
-                                     hovertemplate="<b>%{x}</b><br>" + nombre + ": %{y:.1f} en promedio<extra></extra>"))
-            estilo(fig, 380, leyenda=True)
-            fig.update_layout(barmode="group", bargap=.3, margin=dict(t=10, b=50))
-            fig.update_xaxes(gridcolor="rgba(0,0,0,0)", tickfont=dict(color=T["texto2"]))
-            fig.update_yaxes(visible=False)
-            mostrar(fig, "g_rk_alc")
+    orden_r = reg.sort_values(["prov", "art"], ascending=False)
+    regs_sel = set(_regs[sel]) if sel else set()
+    with tarjeta("Regiones de más a menos proveedores", "rk_reg", "Los nacionales cuentan en todas las regiones.",
+                 extra=f"{len(REGIONES)} regiones"):
+        barras_ranking(orden_r.prov.values, [f"{s} · {REGIONES[s][0]}" for s in orden_r.index],
+                       orden_r.prov.rank(ascending=False, method="min"), "g_rk_reg", T["acento"], "proveedores",
+                       colores=[T["acento"] if not sel or s in regs_sel else alfa(T["acento"], .3)
+                                for s in orden_r.index])
+        if sel:
+            guia(f"En color fuerte, las regiones a las que llega <b>{escape(m.at[sel, 'nombre'])}</b>.")
 
 
 # ──────────────────────────────────────────────────────────────
